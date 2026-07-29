@@ -9,7 +9,8 @@ ai-workflow/
 ├── README.md            ← 你在这里（仓库总览）
 ├── AGENTS.md            ← AI 搭建执行手册（给 AI agent 读）
 ├── mcp部分/              ← MCP 工具索引
-│   └── code-review-graph/
+│   ├── code-review-graph/
+│   └── simple-game-client/   （自建项目，英文）
 └── skill部分/            ← Skills 合集索引
     ├── mattpocock-skills/
     └── superpowers/

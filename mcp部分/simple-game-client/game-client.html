@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>通用游戏客户端</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Fira+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script>
+tailwind.config = {
+  theme: { extend: {
+    colors: { ink:'#0F172A', sub:'#64748B', line:'#E2E8F0', canvas:'#F8FAFC',
+      accent:'#0D9488', 'accent-soft':'#F0FDFA', danger:'#DC2626', warn:'#D97706', ok:'#16A34A' },
+    fontFamily: { sans:['Fira Sans','sans-serif'], mono:['Fira Code','monospace'] }
+  } }
+}
+</script>
+<style>
+  body { font-family:'Fira Sans',sans-serif; }
+  .num,.mono { font-family:'Fira Code',monospace; font-variant-numeric: tabular-nums; }
+  .log-line { font-family:'Fira Code',monospace; font-size:11.5px; line-height:1.7; }
+  .log-line mark { background:#FEF08A; color:#0F172A; border-radius:2px; padding:0 1px; }
+  button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible {
+    outline:2px solid #0D9488; outline-offset:1px; border-radius:6px;
+  }
+  .tab-btn { transition: color .15s, border-color .15s; }
+  .view { display:none; } .view.active { display:block; }
+  @media (prefers-reduced-motion: reduce){ *{transition:none !important;} }
+</style>
+</head>
+<body class="bg-canvas text-ink antialiased">
+
+<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+  <!-- Header + Tabs -->
+  <header class="flex flex-col sm:flex-row sm:items-center gap-4 mb-6">
+    <div class="flex items-center gap-2.5">
+      <div class="w-8 h-8 rounded-lg bg-accent flex items-center justify-center">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"><rect x="2" y="6" width="20" height="12" rx="3"/><path d="M7 10v4M5 12h4M15 11h.01M18 13h.01"/></svg>
+      </div>
+      <div>
+        <h1 class="font-semibold text-base leading-tight">通用游戏客户端</h1>
+        <p class="text-xs text-sub leading-tight">模拟协议层 · 多开管理 · Ctrl+Enter 发送 / Ctrl+K 清屏</p>
+      </div>
+    </div>
+    <nav class="sm:ml-auto flex gap-1 bg-white border border-line rounded-lg p-1 text-sm" aria-label="页面切换">
+      <button data-tab="login" class="tab-btn px-4 h-9 rounded-md font-medium text-accent bg-accent-soft">1 · 登录</button>
+      <button data-tab="sessions" class="tab-btn px-4 h-9 rounded-md text-sub hover:text-ink">2 · 连接管理 <span id="onlineBadge" class="num text-xs bg-canvas border border-line rounded px-1.5 ml-1">0</span></button>
+      <button data-tab="detail" id="detailTab" class="tab-btn px-4 h-9 rounded-md text-sub hover:text-ink opacity-40 pointer-events-none">3 · 账号详情</button>
+    </nav>
+  </header>
+
+  <!-- ============ VIEW 1: 登录 ============ -->
+  <section id="view-login" class="view active">
+    <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
+
+      <!-- 登录卡 -->
+      <div class="lg:col-span-3 bg-white border border-line rounded-xl p-5">
+        <h2 class="text-sm font-semibold mb-4">账号登录</h2>
+        <div class="mb-4">
+          <div class="text-xs text-sub mb-2">选择服务器（单选）</div>
+          <div id="serverList" class="space-y-2"></div>
+        </div>
+        <label class="block mb-4">
+          <span class="text-xs text-sub">账号</span>
+          <input id="accountInput" type="text" placeholder="输入账号名，如 player_001"
+            class="mt-1 w-full h-10 px-3 rounded-lg border border-line bg-canvas text-sm mono placeholder:text-sub/60 focus:border-accent">
+        </label>
+        <div class="flex items-center gap-3">
+          <button id="loginBtn" class="h-10 px-5 rounded-lg bg-accent text-white text-sm font-medium hover:bg-[#0B857A] transition-colors">登 录</button>
+          <button id="logoutBtn" class="hidden h-10 px-5 rounded-lg border border-danger text-danger text-sm font-medium hover:bg-red-50 transition-colors">登 出</button>
+          <span id="loginHint" class="text-xs text-sub"></span>
+        </div>
+      </div>
+
+      <!-- 协议展示（只读，解析逻辑由具体工具自行实现） -->
+      <div class="lg:col-span-2 bg-white border border-line rounded-xl p-5 flex flex-col">
+        <div class="flex items-baseline gap-2 mb-1">
+          <h2 class="text-sm font-semibold">协议列表</h2>
+          <span class="text-xs text-sub">共 <span id="protoCount" class="num">4</span> 条 · 版本 <span class="mono">v0.0.0</span></span>
+        </div>
+        <p class="text-xs text-sub mb-4">展示窗口 · 协议解析由使用方自行接入</p>
+        <input id="protoFilter" type="search" placeholder="过滤协议名…"
+          class="mb-3 w-full h-9 px-3 rounded-lg border border-line bg-canvas text-xs mono placeholder:text-sub/60">
+        <div id="protoList" class="flex-1 min-h-[180px] max-h-[260px] overflow-y-auto space-y-1.5"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ VIEW 2: 连接管理 ============ -->
+  <section id="view-sessions" class="view">
+    <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
+
+      <div class="lg:col-span-3 space-y-3">
+        <!-- 批量操作栏 -->
+        <div id="batchBar" class="hidden bg-white border border-line rounded-xl p-3">
+          <div class="flex items-center gap-3 flex-wrap">
+            <label class="flex items-center gap-1.5 text-xs text-sub cursor-pointer">
+              <input type="checkbox" id="batchAll" class="accent-[#0D9488]"> 全选
+            </label>
+            <span class="text-xs text-sub">已选 <span id="batchCount" class="num">0</span> 个</span>
+            <button id="batchLogout" class="ml-auto h-8 px-3 rounded-lg border border-danger text-danger text-xs font-medium hover:bg-red-50">批量登出</button>
+            <button id="batchSendToggle" class="h-8 px-3 rounded-lg bg-accent text-white text-xs font-medium hover:bg-[#0B857A]">群发指令</button>
+          </div>
+          <div id="batchSendPanel" class="hidden mt-3 pt-3 border-t border-line">
+            <div class="flex gap-2 items-start">
+              <select id="batchProto" class="h-9 px-2 rounded-lg border border-line bg-canvas text-xs mono w-44 shrink-0" onchange="renderBatchParams()"></select>
+              <div id="batchParams" class="flex-1 space-y-1.5"></div>
+              <button class="h-9 px-4 rounded-lg bg-accent text-white text-xs font-medium shrink-0 hover:bg-[#0B857A]" onclick="batchSend()">发送</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="accountCards" class="space-y-3">
+          <div id="emptySessions" class="bg-white border border-dashed border-line rounded-xl p-10 text-center text-sm text-sub">
+            暂无在线账号 — 请先在「1 · 登录」页登录
+          </div>
+        </div>
+      </div>
+
+      <!-- 全局输出 -->
+      <div class="lg:col-span-2 bg-white border border-line rounded-xl flex flex-col">
+        <div class="flex items-center gap-2 px-4 py-3 border-b border-line flex-wrap">
+          <h2 class="text-sm font-semibold">全局输出</h2>
+          <label class="ml-auto flex items-center gap-1.5 text-xs text-sub cursor-pointer">
+            <input type="checkbox" id="hideHeartbeat" class="accent-[#0D9488]"> 隐藏心跳
+          </label>
+          <button id="pauseGlobalLog" class="text-xs px-2.5 h-7 rounded-md border border-line text-sub hover:bg-canvas">暂停</button>
+          <button class="text-xs px-2.5 h-7 rounded-md border border-line text-sub hover:bg-canvas" onclick="exportLog('globalLog','global')">导出</button>
+          <button id="clearGlobalLog" class="text-xs px-2.5 h-7 rounded-md border border-line text-sub hover:bg-canvas">清空</button>
+        </div>
+        <div class="flex gap-1.5 px-4 py-2 border-b border-line">
+          <input id="gFilterKw" type="search" placeholder="关键字过滤…" class="flex-1 h-8 px-2.5 rounded-md border border-line bg-canvas text-xs mono placeholder:text-sub/60">
+          <select id="gFilterDir" class="h-8 px-2 rounded-md border border-line bg-canvas text-xs">
+            <option value="">全部方向</option><option>C→S</option><option>S→C</option><option>SYS</option>
+          </select>
+        </div>
+        <div id="globalLog" class="flex-1 min-h-[300px] max-h-[400px] overflow-y-auto px-4 py-2 bg-[#FCFDFE] rounded-b-xl"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ VIEW 3: 账号详情 ============ -->
+  <section id="view-detail" class="view">
+    <div id="detailContent" class="space-y-4"></div>
+  </section>
+
+</div>
+
+<script>
+/* ================= 数据层（模拟） ================= */
+const SERVERS = [
+  { id:'s1', name:'一区 · 苍穹', host:'s1.game.local:9001', ping: 32 },
+  { id:'s2', name:'二区 · 沧海', host:'s2.game.local:9002', ping: 58 },
+  { id:'s3', name:'三区 · 破晓', host:'s3.game.local:9003', ping: 91 },
+  { id:'s4', name:'测试服 · 沙盒', host:'sandbox.game.local:9999', ping: 12 },
+];
+
+/* 协议表（占位数据）。
+   【接入点】协议解析由使用方自行实现：在此处替换为从 proto / JSON / IDL
+   解析得到的协议表，结构保持 { name, params:{ key: 默认值 } } 即可，
+   登录页展示窗与详情页指令表单会自动使用该表。 */
+const DEFAULT_PROTOCOLS = [
+  { name:'GET_ROLE_INFO', params:{} },
+  { name:'GET_BAG',       params:{} },
+  { name:'USE_ITEM',      params:{ item_id:'0', count:'0' } },
+  { name:'CHAT',          params:{ channel:'0', msg:'' } },
+];
+
+/* ---- 持久化偏好 ---- */
+const prefs = JSON.parse(localStorage.getItem('gc_prefs') || '{}');
+const state = {
+  protocols: structuredClone(DEFAULT_PROTOCOLS),
+  sessions: [],
+  selectedSession: null,
+  selectedServer: prefs.server || 's1',
+  hideHb: !!prefs.hideHb,
+  batchSelected: new Set(),
+  templates: JSON.parse(localStorage.getItem('gc_templates') || '[]'),
+  cmdHistory: {},          // sessionId -> [{proto, params}]
+};
+function savePrefs() {
+  localStorage.setItem('gc_prefs', JSON.stringify({
+    server: state.selectedServer, hideHb: state.hideHb,
+    account: $('#accountInput').value.trim(),
+  }));
+  localStorage.setItem('gc_templates', JSON.stringify(state.templates));
+}
+
+const ITEM_POOL = ['铁剑','治疗药水','铜矿石','皮甲','回城卷轴','魔法粉尘','烤肉','短弓'];
+
+/* ================= 工具 ================= */
+const $ = s => document.querySelector(s);
+const now = () => new Date().toTimeString().slice(0,8);
+const rand = (a,b) => Math.floor(Math.random()*(b-a+1))+a;
+const pick = arr => arr[rand(0,arr.length-1)];
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ================= 日志（带过滤/高亮/暂停） ================= */
+function getFilter(elId) {
+  if (elId === 'globalLog') return { kw: $('#gFilterKw').value.trim(), dir: $('#gFilterDir').value };
+  return { kw: ($('#dFilterKw')?.value || '').trim(), dir: $('#dFilterDir')?.value || '' };
+}
+function matchFilter(line, f) {
+  if (f.dir && line.dataset.dir !== f.dir) return false;
+  if (f.kw && !line.dataset.raw.toLowerCase().includes(f.kw.toLowerCase())) return false;
+  return true;
+}
+function highlight(raw, kw) {
+  const html = esc(raw);
+  if (!kw) return html;
+  const i = html.toLowerCase().indexOf(esc(kw).toLowerCase());
+  if (i < 0) return html;
+  return html.slice(0,i) + '<mark>' + html.slice(i, i+kw.length) + '</mark>' + html.slice(i+kw.length);
+}
+function logLine(el, dir, tag, text, cls) {
+  const raw = `[${now()}] [${dir}] [${tag}] ${text}`;
+  const line = document.createElement('div');
+  line.className = 'log-line ' + (cls||'text-sub');
+  line.dataset.dir = dir; line.dataset.kind = tag; line.dataset.raw = raw;
+  const f = getFilter(el.id);
+  line.innerHTML = highlight(raw, f.kw);
+  if (!matchFilter(line, f)) line.style.display = 'none';
+  if (el.dataset.hideHb === '1' && tag === 'HEARTBEAT') line.style.display = 'none';
+  el.appendChild(line);
+  while (el.children.length > 500) el.removeChild(el.firstChild);
+  if (el.dataset.paused !== '1') el.scrollTop = el.scrollHeight;
+}
+function refilter(el) {
+  const f = getFilter(el.id);
+  el.querySelectorAll('.log-line').forEach(line => {
+    const hbHidden = el.dataset.hideHb === '1' && line.dataset.kind === 'HEARTBEAT';
+    line.style.display = (!hbHidden && matchFilter(line, f)) ? '' : 'none';
+    line.innerHTML = highlight(line.dataset.raw, f.kw);
+  });
+}
+function glog(tag, text, cls) {
+  if (state.hideHb && tag === 'HEARTBEAT') return;
+  logLine($('#globalLog'), 'SYS', tag, text, cls);
+}
+function glogDir(dir, tag, text, cls) {
+  if (state.hideHb && tag === 'HEARTBEAT') return;
+  logLine($('#globalLog'), dir, tag, text, cls);
+}
+function exportLog(elId, name) {
+  const text = [...document.getElementById(elId).children].map(e => e.dataset.raw).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], {type:'text/plain'}));
+  a.download = `${name}_${new Date().toISOString().slice(0,19).replace(/[T:]/g,'-')}.log`;
+  a.click(); URL.revokeObjectURL(a.href);
+}
+function togglePause(sel, btn) {
+  const el = $(sel);
+  el.dataset.paused = el.dataset.paused === '1' ? '' : '1';
+  btn.textContent = el.dataset.paused === '1' ? '继续' : '暂停';
+}
+
+/* ================= 视图切换 ================= */
+document.querySelectorAll('[data-tab]').forEach(btn =>
+  btn.addEventListener('click', () => switchView(btn.dataset.tab)));
+function switchView(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  $('#view-'+name).classList.add('active');
+  document.querySelectorAll('[data-tab]').forEach(b => {
+    const on = b.dataset.tab === name;
+    b.classList.toggle('bg-accent-soft', on); b.classList.toggle('text-accent', on);
+    b.classList.toggle('font-medium', on);    b.classList.toggle('text-sub', !on);
+  });
+}
+
+/* ================= P1 服务器列表 ================= */
+function renderServers() {
+  $('#serverList').innerHTML = SERVERS.map(s => `
+    <label class="flex items-center gap-3 px-3 py-2.5 rounded-lg border cursor-pointer transition-colors
+      ${state.selectedServer===s.id ? 'border-accent bg-accent-soft' : 'border-line hover:bg-canvas'}">
+      <input type="checkbox" name="server" value="${s.id}" ${state.selectedServer===s.id?'checked':''}
+        class="accent-[#0D9488] w-4 h-4" onchange="selectServer('${s.id}')">
+      <span class="text-sm font-medium">${s.name}</span>
+      <span class="mono text-xs text-sub ml-auto">${s.host}</span>
+      <span class="mono text-xs ${s.ping<60?'text-ok':'text-warn'}">${s.ping}ms</span>
+    </label>`).join('');
+}
+function selectServer(id) { state.selectedServer = id; savePrefs(); renderServers(); }
+
+/* ================= P1 协议展示（只读） ================= */
+function renderProtocols() {
+  const kw = ($('#protoFilter').value || '').toUpperCase();
+  $('#protoCount').textContent = state.protocols.length;
+  $('#protoList').innerHTML = state.protocols
+    .filter(p => !kw || p.name.includes(kw))
+    .map(p => {
+      const sig = Object.entries(p.params).map(([k,v]) => `${k}=${v === '' ? '""' : v}`).join(', ');
+      return `<div class="px-3 py-2 rounded-lg border border-line hover:bg-canvas transition-colors">
+        <div class="mono text-xs font-medium">${p.name}</div>
+        <div class="mono text-[10px] text-sub mt-0.5">${sig || '(无参数)'}</div>
+      </div>`;
+    }).join('') || '<div class="text-xs text-sub px-1">无匹配协议</div>';
+}
+$('#protoFilter').addEventListener('input', renderProtocols);
+
+/* ================= 登录 / 登出 ================= */
+function findSession(account) { return state.sessions.find(s => s.account === account); }
+
+$('#loginBtn').addEventListener('click', () => {
+  const account = $('#accountInput').value.trim();
+  if (!account) { $('#loginHint').textContent = '请输入账号'; $('#accountInput').focus(); return; }
+  if (findSession(account)) { $('#loginHint').textContent = '该账号已在线'; return; }
+  const server = SERVERS.find(s => s.id === state.selectedServer);
+  const sess = {
+    id: 'sess_' + Date.now(),
+    account, server, loginAt: Date.now(), seq: 0, missed: 0, status: 'online',
+    money: rand(5000, 90000), gems: rand(50, 800),
+    bag: Array.from({length:24}, () => Math.random()<0.45 ? { name: pick(ITEM_POOL), count: rand(1,20) } : null),
+  };
+  glog('CONN', `连接 ${server.host} …`);
+  setTimeout(() => {
+    state.sessions.push(sess);
+    state.cmdHistory[sess.id] = [];
+    glog('CONN', `${account}@${server.name} 握手成功, session=${sess.id}`, 'text-ok');
+    glog('CONN', `LOGIN_ACK account=${account} money=${sess.money} gems=${sess.gems}`, 'text-ok');
+    startHeartbeat(sess);
+    startPush(sess);
+    savePrefs(); refreshAll();
+    switchView('sessions');
+  }, 400);
+  $('#loginHint').textContent = '连接中…';
+});
+$('#accountInput').addEventListener('input', () => {
+  const s = findSession($('#accountInput').value.trim());
+  $('#loginBtn').classList.toggle('hidden', !!s);
+  $('#logoutBtn').classList.toggle('hidden', !s);
+  $('#loginHint').textContent = s ? '该角色当前在线，可登出' : '';
+});
+$('#logoutBtn').addEventListener('click', () => {
+  const s = findSession($('#accountInput').value.trim());
+  if (s) logout(s.id);
+});
+
+function logout(id, silent) {
+  const i = state.sessions.findIndex(s => s.id === id);
+  if (i < 0) return;
+  const s = state.sessions[i];
+  clearInterval(s.hbTimer); clearInterval(s.pushTimer); clearTimeout(s.rcTimer);
+  state.sessions.splice(i, 1);
+  state.batchSelected.delete(id);
+  delete state.cmdHistory[id];
+  if (!silent) glog('CONN', `${s.account} 已登出，连接关闭`, 'text-danger');
+  if (state.selectedSession === id) state.selectedSession = null;
+  $('#loginBtn').classList.remove('hidden'); $('#logoutBtn').classList.add('hidden');
+  $('#loginHint').textContent = '';
+  refreshAll();
+}
+
+/* ================= 心跳 / 超时 / 自动重连（模拟） ================= */
+function startHeartbeat(s) {
+  s.hbTimer = setInterval(() => {
+    if (s.status !== 'online') return;
+    s.seq++;
+    const det = $('#detailLog');
+    const inDetail = det && state.selectedSession === s.id;
+    glog('HEARTBEAT', `${s.account} ping seq=${s.seq}`);
+    if (inDetail) logLine(det, 'C→S', 'HEARTBEAT', `ping seq=${s.seq}`);
+    if (Math.random() < 0.92) {                      // 92% 收到 ACK
+      s.missed = 0;
+      glog('HEARTBEAT', `${s.account} pong seq=${s.seq} rtt=${rand(8,60)}ms`);
+      if (inDetail) logLine(det, 'S→C', 'HEARTBEAT', `pong seq=${s.seq} rtt=${rand(8,60)}ms`);
+    } else {                                          // 丢包 → 超时计数
+      s.missed++;
+      glog('TIMEOUT', `${s.account} 心跳超时 (${s.missed}/3)`, 'text-warn');
+      if (inDetail) logLine(det, 'SYS', 'TIMEOUT', `心跳 ACK 缺失 (${s.missed}/3)`, 'text-warn');
+      if (s.missed >= 3) startReconnect(s);
+    }
+  }, 4000);
+}
+function startReconnect(s) {
+  s.status = 'reconnecting'; s.attempt = 0;
+  clearInterval(s.hbTimer); clearInterval(s.pushTimer);
+  glog('CONN', `${s.account} 心跳连续超时，判定断线，开始自动重连`, 'text-danger');
+  tryReconnect(s);
+}
+function tryReconnect(s) {
+  if (!state.sessions.includes(s)) return;
+  s.attempt++;
+  glog('CONN', `${s.account} 第 ${s.attempt} 次重连 ${s.server.host} …`, 'text-warn');
+  renderSessions();
+  s.rcTimer = setTimeout(() => {
+    if (Math.random() < 0.75) {                       // 75% 重连成功
+      s.status = 'online'; s.missed = 0; s.seq = 0;
+      glog('CONN', `${s.account} 重连成功，重新同步数据`, 'text-ok');
+      startHeartbeat(s); startPush(s);
+      refreshAll();
+    } else if (s.attempt >= 3) {
+      glog('CONN', `${s.account} 重连失败（已达 3 次），断开连接`, 'text-danger');
+      logout(s.id);
+    } else {
+      tryReconnect(s);                                // 退避重试
+    }
+  }, 1500 * s.attempt);                               // 简单线性退避
+}
+
+/* ================= 服务端推送 ================= */
+function startPush(s) {
+  s.pushTimer = setInterval(() => {
+    if (s.status !== 'online') return;
+    const r = Math.random();
+    if (r < 0.5) {
+      const delta = rand(-200, 500);
+      s.money = Math.max(0, s.money + delta);
+      pushToDetail(s, 'PUSH_MONEY', `money=${s.money} delta=${delta>=0?'+':''}${delta}`);
+    } else if (r < 0.8) {
+      const slot = rand(0, 23);
+      s.bag[slot] = Math.random() < 0.75 ? { name: pick(ITEM_POOL), count: rand(1,20) } : null;
+      pushToDetail(s, 'PUSH_BAG', `slot=${slot} item=${s.bag[slot]?s.bag[slot].name+'×'+s.bag[slot].count:'空'}`);
+    } else {
+      s.gems += rand(0, 3);
+      pushToDetail(s, 'PUSH_GEMS', `gems=${s.gems}`);
+    }
+    if (state.selectedSession === s.id) renderDetailData(s);
+  }, 9000);
+}
+function pushToDetail(s, tag, text) {
+  const det = $('#detailLog');
+  if (det && state.selectedSession === s.id) {
+    logLine(det, 'S→C', tag, text, 'text-accent');
+    renderParsed({ proto: tag, dir:'S→C', fields: Object.fromEntries(text.split(' ').map(kv=>kv.split('='))) });
+  }
+}
+
+/* ================= P2 账号卡片 + 批量 ================= */
+const STATUS_UI = {
+  online:       { dot:'bg-ok',   text:'在线',   cls:'text-ok' },
+  reconnecting: { dot:'bg-warn', text:'重连中', cls:'text-warn' },
+};
+function renderSessions() {
+  $('#onlineBadge').textContent = state.sessions.length;
+  $('#emptySessions').style.display = state.sessions.length ? 'none' : '';
+  $('#batchBar').classList.toggle('hidden', state.sessions.length < 2);
+  document.querySelectorAll('.sess-card').forEach(e => e.remove());
+  state.sessions.forEach(s => {
+    const mins = Math.floor((Date.now()-s.loginAt)/60000);
+    const st = STATUS_UI[s.status];
+    const card = document.createElement('div');
+    card.className = 'sess-card bg-white border border-line rounded-xl p-4 flex items-center gap-3';
+    card.innerHTML = `
+      <input type="checkbox" class="accent-[#0D9488] w-4 h-4 shrink-0" ${state.batchSelected.has(s.id)?'checked':''}
+        onchange="toggleBatch('${s.id}',this.checked)" title="批量选择">
+      <span class="relative flex h-2.5 w-2.5 shrink-0">
+        ${s.status==='online' ? '<span class="animate-ping absolute h-full w-full rounded-full bg-ok opacity-60"></span>' : ''}
+        <span class="relative rounded-full h-2.5 w-2.5 ${st.dot}"></span>
+      </span>
+      <div class="min-w-0">
+        <div class="mono text-sm font-medium truncate">${esc(s.account)}</div>
+        <div class="text-xs text-sub">${s.server.name} · <span class="${st.cls}">${st.text}${s.status==='reconnecting'?'('+s.attempt+'/3)':''}</span> · 在线 <span class="num">${mins}m</span></div>
+      </div>
+      <div class="ml-auto flex items-center gap-2">
+        <span class="mono text-xs text-sub hidden sm:inline">♥ ${s.seq}</span>
+        <button class="h-9 px-3.5 rounded-lg bg-accent text-white text-xs font-medium hover:bg-[#0B857A] transition-colors" onclick="openDetail('${s.id}')">详情</button>
+        <button class="h-9 px-3.5 rounded-lg border border-line text-sub text-xs hover:bg-canvas transition-colors" onclick="logout('${s.id}')">登出</button>
+      </div>`;
+    $('#accountCards').appendChild(card);
+  });
+  updateBatchUI();
+}
+function toggleBatch(id, on) { on ? state.batchSelected.add(id) : state.batchSelected.delete(id); updateBatchUI(); }
+$('#batchAll').addEventListener('change', e => {
+  state.batchSelected = e.target.checked ? new Set(state.sessions.map(s=>s.id)) : new Set();
+  renderSessions();
+});
+function updateBatchUI() {
+  $('#batchCount').textContent = state.batchSelected.size;
+  $('#batchAll').checked = state.sessions.length > 0 && state.batchSelected.size === state.sessions.length;
+}
+$('#batchLogout').addEventListener('click', () => {
+  [...state.batchSelected].forEach(id => logout(id));
+  state.batchSelected.clear(); updateBatchUI();
+});
+$('#batchSendToggle').addEventListener('click', () => {
+  const p = $('#batchSendPanel');
+  p.classList.toggle('hidden');
+  if (!p.classList.contains('hidden')) {
+    $('#batchProto').innerHTML = state.protocols.map(x => `<option>${x.name}</option>`).join('');
+    renderBatchParams();
+  }
+});
+function renderBatchParams() {
+  const p = state.protocols.find(x => x.name === $('#batchProto').value);
+  $('#batchParams').innerHTML = Object.keys(p.params).length
+    ? Object.entries(p.params).map(([k,v]) =>
+        `<input data-bparam="${k}" value="${esc(v)}" placeholder="${k}" class="w-full h-8 px-2.5 rounded-md border border-line bg-canvas text-xs mono">`).join('')
+    : '<div class="text-xs text-sub py-1.5">无参数</div>';
+}
+function batchSend() {
+  if (!state.batchSelected.size) { alert('请先勾选账号'); return; }
+  const name = $('#batchProto').value;
+  const fields = {};
+  document.querySelectorAll('#batchParams [data-bparam]').forEach(i => fields[i.dataset.bparam] = i.value);
+  const qs = Object.entries(fields).map(([k,v])=>`${k}=${v}`).join(' ') || '(no params)';
+  state.sessions.filter(s => state.batchSelected.has(s.id)).forEach((s, i) => {
+    glogDir('C→S', name, `${s.account} ${qs}`, 'text-ink');
+    setTimeout(() => glogDir('S→C', name+'_ACK', `${s.account} result=OK code=0`, 'text-ok'), rand(150,600) + i*80);
+  });
+}
+
+/* ================= P3 详情 ================= */
+function openDetail(id) {
+  state.selectedSession = id;
+  $('#detailTab').classList.remove('opacity-40','pointer-events-none');
+  renderDetail();
+  switchView('detail');
+}
+
+function renderDetail() {
+  const s = state.sessions.find(x => x.id === state.selectedSession);
+  if (!s) { $('#detailContent').innerHTML = '<div class="bg-white border border-line rounded-xl p-10 text-center text-sm text-sub">账号已离线</div>'; return; }
+  $('#detailContent').innerHTML = `
+    <div class="bg-white border border-line rounded-xl p-5 flex flex-wrap items-center gap-x-8 gap-y-3">
+      <div><div class="text-xs text-sub">账号</div><div class="mono text-sm font-semibold">${esc(s.account)}</div></div>
+      <div><div class="text-xs text-sub">服务器</div><div class="text-sm">${s.server.name}</div></div>
+      <div><div class="text-xs text-sub">金币</div><div id="dMoney" class="mono text-lg font-semibold text-accent">${s.money.toLocaleString()}</div></div>
+      <div><div class="text-xs text-sub">钻石</div><div id="dGems" class="mono text-lg font-semibold">${s.gems}</div></div>
+      <button class="ml-auto h-9 px-4 rounded-lg border border-danger text-danger text-xs font-medium hover:bg-red-50" onclick="logout('${s.id}')">登出该账号</button>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <!-- 背包 -->
+      <div class="bg-white border border-line rounded-xl p-5">
+        <h2 class="text-sm font-semibold mb-1">背包 <span class="text-xs text-sub font-normal">本地缓存 · 服务端推送更新</span></h2>
+        <div id="dBag" class="mt-3 grid grid-cols-6 gap-1.5"></div>
+      </div>
+      <!-- 指令 -->
+      <div class="bg-white border border-line rounded-xl p-5">
+        <h2 class="text-sm font-semibold mb-3">发送指令 <span class="text-xs text-sub font-normal">Ctrl+Enter</span></h2>
+        <label class="block mb-3">
+          <span class="text-xs text-sub">协议</span>
+          <select id="cmdProto" class="mt-1 w-full h-10 px-3 rounded-lg border border-line bg-canvas text-sm mono" onchange="renderCmdParams()"></select>
+        </label>
+        <div id="cmdParams" class="space-y-2 mb-3"></div>
+        <button class="h-10 w-full rounded-lg bg-accent text-white text-sm font-medium hover:bg-[#0B857A] transition-colors" onclick="sendCmd()">发 送</button>
+
+        <!-- 模板 -->
+        <div class="mt-3 pt-3 border-t border-line">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="text-xs text-sub">指令模板</span>
+            <button class="text-xs px-2 h-6 rounded-md border border-line text-sub hover:bg-canvas" onclick="saveTemplate()" title="把当前协议+参数存为模板">+ 存当前</button>
+          </div>
+          <div id="tplList" class="flex flex-wrap gap-1.5"></div>
+        </div>
+
+        <!-- 历史 -->
+        <div class="mt-3 pt-3 border-t border-line">
+          <div class="text-xs text-sub mb-2">最近指令（点击填充，⟳ 直接重发）</div>
+          <div id="cmdHistory" class="space-y-1 max-h-[120px] overflow-y-auto"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <!-- 原始输出 -->
+      <div class="bg-white border border-line rounded-xl flex flex-col">
+        <div class="flex items-center gap-2 px-4 py-3 border-b border-line flex-wrap">
+          <h2 class="text-sm font-semibold">服务端输出</h2>
+          <label class="ml-auto flex items-center gap-1.5 text-xs text-sub cursor-pointer">
+            <input type="checkbox" class="accent-[#0D9488]" onchange="$('#detailLog').dataset.hideHb=this.checked?'1':'';refilter($('#detailLog'))"> 隐藏心跳
+          </label>
+          <button class="text-xs px-2.5 h-7 rounded-md border border-line text-sub hover:bg-canvas" onclick="togglePause('#detailLog',this)">暂停</button>
+          <button class="text-xs px-2.5 h-7 rounded-md border border-line text-sub hover:bg-canvas" onclick="exportLog('detailLog','${s.account}')">导出</button>
+          <button class="text-xs px-2.5 h-7 rounded-md border border-line text-sub hover:bg-canvas" onclick="$('#detailLog').innerHTML=''">清空</button>
+        </div>
+        <div class="flex gap-1.5 px-4 py-2 border-b border-line">
+          <input id="dFilterKw" type="search" placeholder="关键字过滤…" class="flex-1 h-8 px-2.5 rounded-md border border-line bg-canvas text-xs mono placeholder:text-sub/60" oninput="refilter($('#detailLog'))">
+          <select id="dFilterDir" class="h-8 px-2 rounded-md border border-line bg-canvas text-xs" onchange="refilter($('#detailLog'))">
+            <option value="">全部方向</option><option>C→S</option><option>S→C</option><option>SYS</option>
+          </select>
+        </div>
+        <div id="detailLog" class="min-h-[220px] max-h-[280px] overflow-y-auto px-4 py-2 bg-[#FCFDFE] rounded-b-xl"></div>
+      </div>
+      <!-- 协议解析 -->
+      <div class="bg-white border border-line rounded-xl flex flex-col">
+        <div class="px-4 py-3 border-b border-line"><h2 class="text-sm font-semibold">协议解析</h2></div>
+        <div id="parsedView" class="flex-1 min-h-[220px] max-h-[280px] overflow-y-auto px-4 py-3 text-xs text-sub">等待数据包…</div>
+      </div>
+    </div>`;
+  renderDetailData(s);
+  renderCmdProtoOptions();
+  renderTemplates();
+  renderCmdHistory();
+  logLine($('#detailLog'), 'SYS', 'CACHE', `加载本地缓存: money=${s.money} gems=${s.gems} bag=${s.bag.filter(Boolean).length}件`, 'text-accent');
+}
+
+function renderDetailData(s) {
+  const m = $('#dMoney'), g = $('#dGems'), bag = $('#dBag');
+  if (!m || state.selectedSession !== s.id) return;
+  m.textContent = s.money.toLocaleString();
+  g.textContent = s.gems;
+  bag.innerHTML = s.bag.map(it => it
+    ? `<div class="aspect-square rounded-lg border border-line bg-canvas flex flex-col items-center justify-center p-1" title="${it.name} ×${it.count}">
+         <span class="text-[10px] leading-tight text-center truncate w-full">${it.name}</span>
+         <span class="num text-[10px] text-accent font-medium">×${it.count}</span></div>`
+    : `<div class="aspect-square rounded-lg border border-dashed border-line"></div>`).join('');
+}
+
+/* ---- 指令：协议表单 ---- */
+function renderCmdProtoOptions() {
+  $('#cmdProto').innerHTML = state.protocols.map(p => `<option value="${p.name}">${p.name}</option>`).join('');
+  renderCmdParams();
+}
+function renderCmdParams() {
+  const p = state.protocols.find(x => x.name === $('#cmdProto').value);
+  $('#cmdParams').innerHTML = Object.keys(p.params).length
+    ? Object.entries(p.params).map(([k,v]) => `
+      <label class="flex items-center gap-3">
+        <span class="mono text-xs text-sub w-28 shrink-0 truncate">${k}</span>
+        <input data-param="${k}" value="${esc(v)}" class="flex-1 h-9 px-3 rounded-lg border border-line bg-canvas text-xs mono">
+      </label>`).join('')
+    : '<div class="text-xs text-sub">该协议无参数</div>';
+}
+function currentCmd() {
+  const fields = {};
+  document.querySelectorAll('#cmdParams [data-param]').forEach(i => fields[i.dataset.param] = i.value);
+  return { proto: $('#cmdProto').value, params: fields };
+}
+function fillCmd(cmd) {
+  $('#cmdProto').value = cmd.proto;
+  renderCmdParams();
+  document.querySelectorAll('#cmdParams [data-param]').forEach(i => {
+    if (cmd.params[i.dataset.param] !== undefined) i.value = cmd.params[i.dataset.param];
+  });
+}
+
+/* ---- 指令：发送（含历史记录） ---- */
+function sendCmd() {
+  const s = state.sessions.find(x => x.id === state.selectedSession);
+  if (!s) return;
+  const cmd = currentCmd();
+  const hist = state.cmdHistory[s.id];
+  hist.unshift(cmd); if (hist.length > 20) hist.pop();
+  renderCmdHistory();
+  doSend(s, cmd.proto, cmd.params);
+}
+function doSend(s, name, fields) {
+  const det = $('#detailLog');
+  const viewing = det && state.selectedSession === s.id;
+  const qs = Object.entries(fields).map(([k,v])=>`${k}=${v}`).join(' ');
+  if (viewing) {
+    logLine(det, 'C→S', name, qs || '(no params)', 'text-ink');
+    renderParsed({ proto:name, dir:'C→S', fields });
+  }
+  setTimeout(() => {
+    const resp = { result:'OK', code:0, ts: Date.now() };
+    if (name === 'GET_ROLE_INFO') Object.assign(resp, { level: rand(10,60), exp: rand(1000,99999), power: rand(5000,30000) });
+    if (name === 'USE_ITEM') Object.assign(resp, { consumed: fields.item_id||'0', left: rand(0,10) });
+    if (viewing) {
+      logLine(det, 'S→C', name+'_ACK', Object.entries(resp).map(([k,v])=>`${k}=${v}`).join(' '), 'text-ok');
+      renderParsed({ proto:name+'_ACK', dir:'S→C', fields:resp });
+    }
+  }, rand(150, 600));
+}
+
+/* ---- 指令历史 ---- */
+function renderCmdHistory() {
+  const s = state.sessions.find(x => x.id === state.selectedSession);
+  const hist = s ? state.cmdHistory[s.id] : [];
+  $('#cmdHistory').innerHTML = hist.length ? hist.slice(0,8).map((c,i) => `
+    <div class="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-canvas cursor-pointer group" onclick="fillFromHist(${i})">
+      <span class="mono text-[11px] truncate flex-1">${c.proto} ${Object.entries(c.params).map(([k,v])=>k+'='+esc(v)).join(' ')}</span>
+      <button class="text-xs text-sub hover:text-accent opacity-0 group-hover:opacity-100" title="直接重发"
+        onclick="event.stopPropagation();resend(${i})">⟳</button>
+    </div>`).join('')
+    : '<div class="text-xs text-sub/60 px-1">暂无</div>';
+}
+function fillFromHist(i) {
+  const s = state.sessions.find(x => x.id === state.selectedSession);
+  const c = s && state.cmdHistory[s.id][i];
+  if (c) fillCmd(c);
+}
+function resend(i) {
+  const s = state.sessions.find(x => x.id === state.selectedSession);
+  const c = state.cmdHistory[s.id][i];
+  if (c) doSend(s, c.proto, c.params);
+}
+
+/* ---- 指令模板（localStorage 持久化） ---- */
+function saveTemplate() {
+  const cmd = currentCmd();
+  const name = prompt('模板名称：', cmd.proto);
+  if (!name) return;
+  state.templates = state.templates.filter(t => t.name !== name);
+  state.templates.push({ name, ...cmd });
+  savePrefs(); renderTemplates();
+}
+function renderTemplates() {
+  $('#tplList').innerHTML = state.templates.length ? state.templates.map((t,i) => `
+    <span class="inline-flex items-center gap-1 mono text-[11px] bg-accent-soft text-accent rounded-md pl-2 pr-1 py-1">
+      <button class="hover:underline" onclick="fillTpl(${i})" title="填充到表单">${esc(t.name)}</button>
+      <button class="text-accent/60 hover:text-danger px-0.5" onclick="delTemplate(${i})" title="删除">×</button>
+    </span>`).join('')
+    : '<span class="text-xs text-sub/60">暂无模板</span>';
+}
+function fillTpl(i) {
+  const t = state.templates[i];
+  if (t) fillCmd({ proto: t.proto, params: t.params });
+}
+function delTemplate(i) { state.templates.splice(i,1); savePrefs(); renderTemplates(); }
+
+/* ---- 协议解析视图 ---- */
+function renderParsed(pkt) {
+  $('#parsedView').innerHTML = `
+    <div class="mb-2 flex items-center gap-2">
+      <span class="mono font-semibold text-ink">${pkt.proto}</span>
+      <span class="text-[10px] px-1.5 py-0.5 rounded bg-canvas border border-line">${pkt.dir}</span>
+    </div>
+    <table class="w-full text-xs mono">
+      <tbody>${Object.entries(pkt.fields).map(([k,v]) =>
+        `<tr class="border-b border-line/60"><td class="py-1.5 pr-3 text-sub">${k}</td><td class="py-1.5 text-ink">${esc(v)}</td></tr>`).join('') || '<tr><td class="py-1.5 text-sub">（无字段）</td></tr>'}
+      </tbody>
+    </table>`;
+}
+
+/* ================= 全局控制 ================= */
+$('#hideHeartbeat').addEventListener('change', e => { state.hideHb = e.target.checked; savePrefs(); });
+$('#pauseGlobalLog').addEventListener('click', function() { togglePause('#globalLog', this); });
+$('#clearGlobalLog').addEventListener('click', () => $('#globalLog').innerHTML = '');
+$('#gFilterKw').addEventListener('input', () => refilter($('#globalLog')));
+$('#gFilterDir').addEventListener('change', () => refilter($('#globalLog')));
+
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey && e.key === 'Enter' && $('#view-detail').classList.contains('active')) {
+    e.preventDefault(); sendCmd();
+  }
+  if (e.ctrlKey && (e.key === 'k' || e.key === 'K')) {
+    e.preventDefault();
+    if ($('#view-detail').classList.contains('active')) $('#detailLog').innerHTML = '';
+    else if ($('#view-sessions').classList.contains('active')) $('#globalLog').innerHTML = '';
+  }
+});
+
+/* ================= 初始化 ================= */
+function refreshAll() { renderSessions(); if (state.selectedSession) renderDetail(); }
+renderServers();
+renderProtocols();
+if (prefs.account) $('#accountInput').value = prefs.account;
+$('#hideHeartbeat').checked = state.hideHb;
+glog('SYS', '客户端就绪，等待登录', 'text-accent');
+</script>
+</body>
+</html>

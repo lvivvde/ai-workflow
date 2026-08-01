@@ -57,6 +57,21 @@ code-review-graph uninstall --dry-run   # 先预览
 code-review-graph uninstall             # 确认后执行
 ```
 
+## 1b. MCP：mongodb-mcp-server（官方）
+
+**用途**：AI 直连 MongoDB（查文档、聚合、索引、schema 推断）。
+**索引**：[mcp部分/mongodb-mcp-server/README.md](./mcp部分/mongodb-mcp-server/README.md)
+
+### 安装
+
+无需安装，`npx` 直跑。`mcp.json` 片段见索引文档。
+
+### 使用规则（强制执行）
+
+- **生产/线上库一律 `--readOnly`**；写操作只允许指向内网测试库
+- 连接串只走环境变量 `MDB_MCP_CONNECTION_STRING`，**不得写进任何提交到仓库的文件**
+- 涉及删改操作（非只读模式时）必须先向用户弹确认框
+
 ## 2. Skills：mattpocock/skills
 
 **用途**：30+ 个 AI skills（grill-me、handoff、code-review、tdd 等）。

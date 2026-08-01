@@ -10,6 +10,7 @@ ai-workflow/
 ├── AGENTS.md            ← AI 搭建执行手册（给 AI agent 读）
 ├── mcp部分/              ← MCP 工具索引
 │   ├── code-review-graph/
+│   ├── mongodb-mcp-server/
 │   ├── simple-game-client/   （自建项目，英文）
 │   └── simple-game-server/   （已评估否决，决策记录）
 └── skill部分/            ← Skills 合集索引

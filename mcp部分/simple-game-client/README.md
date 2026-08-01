@@ -20,6 +20,8 @@ Because there is no official protocol SDK, everything below the MCP interface mu
 
 In short: **the MCP layer is thin; the hard part is faithfully reproducing the client's network stack.**
 
+> Design decision: the **MCP transport layer uses the official SDK** (`@modelcontextprotocol/sdk` or the Python equivalent). "Hand-written" above refers to the *game* protocol/crypto/session layers only. Compliance & distribution checklist: see [MCP-COMPLIANCE.md](./MCP-COMPLIANCE.md).
+
 ## Architecture (draft)
 
 ```
@@ -37,7 +39,7 @@ Game Server
 ```
 
 - **Language**: TBD (TypeScript / Python / Go)
-- **MCP SDK**: TBD
+- **MCP SDK**: official SDK required (specific package follows the language choice)
 - **Transport**: stdio first, SSE/HTTP optional
 
 ## Planned MCP Tools
@@ -60,5 +62,7 @@ Game Server
 6. End-to-end test with an AI agent
 
 ## Notes
+
+- **Prior-art check (2026-08)**: no existing MCP project does protocol-level game-client simulation. awesome-mcp-servers' Gaming category (~30 entries) covers game-data APIs, engine bridges (Unity/Godot), emulator control, and rules references — none connect to a live game server over a custom protocol with self-maintained heartbeat/crypto. This project fills that gap.
 
 _(design decisions, protocol docs, packet references, and source-code pointers go here)_

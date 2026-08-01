@@ -63,6 +63,7 @@ Game Server
 
 ## Notes
 
-- **Prior-art check (2026-08)**: no existing MCP project does protocol-level game-client simulation. awesome-mcp-servers' Gaming category (~30 entries) covers game-data APIs, engine bridges (Unity/Godot), emulator control, and rules references — none connect to a live game server over a custom protocol with self-maintained heartbeat/crypto. This project fills that gap.
+- **Prior-art check (2026-08)**: no existing MCP project does protocol-level game-client simulation. awesome-mcp-servers' Gaming category (~30 entries) covers game-data APIs, engine bridges (Unity/Godot), emulator control, and rules references — none connect to a live game server over a custom protocol with self-maintained heartbeat/crypto.
+- **Scope**: project-specific by design. Game protocols differ per title and are tightly coupled to each game's client source — each game needs its own implementation. Not for public release; internal team usage only (handoff standards in [MCP-COMPLIANCE.md](./MCP-COMPLIANCE.md)).
 
 _(design decisions, protocol docs, packet references, and source-code pointers go here)_

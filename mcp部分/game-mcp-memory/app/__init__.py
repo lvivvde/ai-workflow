@@ -1,0 +1,1 @@
+"""Game MCP memory sidecar."""

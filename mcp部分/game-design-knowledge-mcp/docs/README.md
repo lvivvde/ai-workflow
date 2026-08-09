@@ -15,3 +15,5 @@ docs/
 分类目录只负责保存原始文件，不保存生成的 Markdown、中间 JSON 或 SQLite 索引，避免原文和派生数据混在一起。
 
 当前正式版只解析 `.docx` 和 `.xlsx`。CSV、Markdown、PDF、PPTX 目录是资料分类与后续扩展预留，建立索引时会被跳过；旧版 `.xls` 需要先转换成 `.xlsx`。
+
+第三方 AI 移动/复制文件及重建共享 SQLite 的强制流程见 [`import-policy.md`](import-policy.md)。

@@ -42,7 +42,7 @@ game-design-knowledge-mcp/
 - 使用 SQLite FTS5 trigram 搜索标题、邻近文字和 OCR 文本。
 - 自动检测 Tesseract；不可用或失败时明确记录状态，不生成伪造文字。
 - 使用 staging 构建并在成功后发布，失败不会覆盖已有索引。
-- 提供 `search_images`、`get_image_context`、`index_status` 三个只读 MCP 工具。
+- 提供严格证据查询工具，以及需要“先预览、再确认”的受控文档导入和共享索引重建工具。
 - 索引 DOCX 标题、段落、列表和表格单元格，以及 XLSX 原始值、公式、样式和合并范围。
 - 使用统一证据模型查询正文、配置和图片，并返回 `found`、`not_found`、`ambiguous` 或 `stale`。
 - 只解析人工玩法目录中的正式名和已确认别名，不自动联想或写入外号。
@@ -97,6 +97,7 @@ uv run game-design-knowledge index . --output .index/knowledge
 
 ```powershell
 $env:GAME_DESIGN_INDEX_DIR = "D:\你的仓库路径\mcp部分\game-design-knowledge-mcp\.index\knowledge"
+$env:GAME_DESIGN_PROJECT_ROOT = "D:\你的仓库路径\mcp部分\game-design-knowledge-mcp"
 uv run game-design-knowledge-mcp
 ```
 
@@ -108,7 +109,8 @@ MCP 客户端配置示例：
     "game-design-knowledge": {
       "command": "D:\\你的仓库路径\\mcp部分\\game-design-knowledge-mcp\\.venv\\Scripts\\game-design-knowledge-mcp.exe",
       "env": {
-        "GAME_DESIGN_INDEX_DIR": "D:\\你的仓库路径\\mcp部分\\game-design-knowledge-mcp\\.index\\knowledge"
+        "GAME_DESIGN_INDEX_DIR": "D:\\你的仓库路径\\mcp部分\\game-design-knowledge-mcp\\.index\\knowledge",
+        "GAME_DESIGN_PROJECT_ROOT": "D:\\你的仓库路径\\mcp部分\\game-design-knowledge-mcp"
       }
     }
   }
@@ -126,6 +128,22 @@ MCP 客户端配置示例：
 - `get_sheet_range(workbook, sheet, range)`：读取指定工作表 A1 范围。
 - `find_feature(name)`：只解析正式名和人工确认别名。
 - `get_feature_evidence(name, ...)`：按正式名聚合正文、配置和图片证据。
+- `plan_document_import(source_paths, destination="docs", operation="copy")`：只读预览 DOCX/XLSX 的源路径、目标路径、SHA256 和操作，不修改文件。
+- `import_documents(..., plan_token, confirmed=true)`：按已确认计划复制或移动文件，并原子重建共享 SQLite；失败时恢复文件并保留旧索引。
+- `rebuild_shared_index(confirmed=false)`：预览或明确确认后重建共享索引。
+
+## 第三方 AI 导入资料
+
+第三方 AI 只连接本 MCP 也可以完成分类和建库，但必须遵循两步确认：
+
+1. 正式资料默认使用 `destination="docs"`；只有用户明确说“测试/示例资料”时才使用 `destination="examples"`。
+2. 默认 `operation="copy"`，只有用户明确要求移动原文件时才使用 `move`。
+3. 先调用 `plan_document_import`，向用户展示每个源文件、目标文件和操作。
+4. 用户明确确认后，使用完全相同的参数、返回的 `plan_token` 和 `confirmed=true` 调用 `import_documents`。
+5. 工具只接受 DOCX/XLSX，禁止覆盖同名文件；建库失败会回滚文件操作。
+6. 完成后将原始资料、`.index/knowledge/knowledge.sqlite` 和 `.index/knowledge/assets/` 放在同一个 Git 提交中。
+
+该流程只处理文件分类与事实索引，不会从文档名称或内容猜测、创建玩法别名。
 
 ## 人工玩法目录
 
@@ -135,7 +153,7 @@ MCP 客户端配置示例：
 
 本 MCP 使用严格的“只按文档事实回答”模式：禁止根据模型常识、名称相似度或行业经验推断项目玩法；没有证据时必须明确返回未找到；设计意图必须有文档明示依据；别名只有文档记载或用户明确确认后才能使用。
 
-完整规则见 [`docs/evidence-policy.md`](docs/evidence-policy.md)。实际游戏项目还应将 [`examples/client-rules/AGENTS.example.md`](examples/client-rules/AGENTS.example.md) 的内容复制到项目 `AGENTS.md` 或平台永久 Rules 中，以加固客户端行为。
+完整证据规则见 [`docs/evidence-policy.md`](docs/evidence-policy.md)，文件写入规则见 [`docs/import-policy.md`](docs/import-policy.md)。实际游戏项目还应将 [`examples/client-rules/AGENTS.example.md`](examples/client-rules/AGENTS.example.md) 的内容复制到项目 `AGENTS.md` 或平台永久 Rules 中，以加固客户端行为。
 
 ## OCR
 

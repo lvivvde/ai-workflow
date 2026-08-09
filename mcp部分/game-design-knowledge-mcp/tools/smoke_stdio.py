@@ -20,6 +20,7 @@ async def _run(index_directory: Path) -> dict[str, object]:
     async with stdio_client(parameters) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
+            tools_result = await session.list_tools()
             result = await session.call_tool("index_status", {})
 
     payload = result.model_dump(by_alias=True, exclude_none=True)
@@ -35,6 +36,17 @@ async def _run(index_directory: Path) -> dict[str, object]:
         raise RuntimeError(f"Unexpected schema version: {structured}")
     if structured.get("is_stale") is not False:
         raise RuntimeError(f"Smoke-test index is stale: {structured}")
+    tool_names = sorted(tool.name for tool in tools_result.tools)
+    required_tools = {
+        "index_status",
+        "plan_document_import",
+        "import_documents",
+        "rebuild_shared_index",
+    }
+    missing_tools = required_tools.difference(tool_names)
+    if missing_tools:
+        raise RuntimeError(f"MCP server is missing required tools: {sorted(missing_tools)}")
+    structured["tools_available"] = tool_names
     return structured
 
 

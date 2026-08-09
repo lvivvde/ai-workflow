@@ -545,11 +545,18 @@ def _index_catalog(
             _stored_source_path(catalog_path, output),
             catalog_stat.st_size,
             catalog_stat.st_mtime_ns,
-            _file_sha256(catalog_path),
+            catalog_fingerprint(catalog),
             datetime.now(timezone.utc).isoformat(),
         ),
     )
     return features_indexed, aliases_indexed
+
+
+def catalog_fingerprint(catalog: object) -> str:
+    canonical_json = json.dumps(
+        catalog, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+    return hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
 
 
 def _find_catalog_path(source: Path) -> Path | None:

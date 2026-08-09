@@ -46,12 +46,14 @@ try {
 
     $serverPath = (Resolve-Path ".venv\Scripts\game-design-knowledge-mcp.exe").Path
     $indexPath = (Resolve-Path $Output).Path
+    $projectPath = (Resolve-Path $projectRoot).Path
     $configuration = [ordered]@{
         mcpServers = [ordered]@{
             "game-design-knowledge" = [ordered]@{
                 command = $serverPath
                 env = [ordered]@{
                     GAME_DESIGN_INDEX_DIR = $indexPath
+                    GAME_DESIGN_PROJECT_ROOT = $projectPath
                 }
             }
         }

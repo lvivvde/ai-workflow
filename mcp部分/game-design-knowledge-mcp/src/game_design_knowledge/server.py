@@ -10,6 +10,12 @@ import sqlite3
 
 from mcp.server import MCPServer
 
+from .ingest import (
+    apply_document_import,
+    plan_document_import as build_document_import_plan,
+    rebuild_shared_index as rebuild_index_files,
+)
+from .indexer import catalog_fingerprint
 from .policy import EVIDENCE_POLICY
 
 
@@ -66,7 +72,7 @@ def _index_status_for_database(database_path: Path) -> dict[str, object]:
     catalog_is_stale = False
     if catalog is not None:
         catalog_path = _resolve_source_path(database_path, catalog["path"])
-        catalog_is_stale = not _source_matches_index(catalog_path, catalog)
+        catalog_is_stale = not _catalog_matches_index(catalog_path, catalog)
         if indexed_at is None or catalog["indexed_at"] > indexed_at:
             indexed_at = catalog["indexed_at"]
     return {
@@ -110,6 +116,14 @@ def _source_matches_index(source_path: Path, record: sqlite3.Row) -> bool:
         actual_hash = digest.hexdigest()
         _FRESHNESS_HASH_CACHE[cache_key] = actual_hash
     return actual_hash == record["source_sha256"]
+
+
+def _catalog_matches_index(catalog_path: Path, record: sqlite3.Row) -> bool:
+    try:
+        catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return False
+    return catalog_fingerprint(catalog) == record["source_sha256"]
 
 
 def _resolve_result_source(database_path: Path, item: dict[str, object]) -> None:
@@ -952,6 +966,71 @@ def get_image_context(image_id: int) -> dict[str, object]:
     return result
 
 
+@mcp.tool()
+def plan_document_import(
+    source_paths: list[str],
+    destination: str = "docs",
+    operation: str = "copy",
+) -> dict[str, object]:
+    """Preview exact DOCX/XLSX file operations; this tool never writes files."""
+    return build_document_import_plan(
+        source_paths, _project_root(), destination, operation
+    )
+
+
+@mcp.tool()
+def import_documents(
+    source_paths: list[str],
+    plan_token: str,
+    destination: str = "docs",
+    operation: str = "copy",
+    confirmed: bool = False,
+) -> dict[str, object]:
+    """After explicit confirmation, import DOCX/XLSX and atomically rebuild SQLite."""
+    if not confirmed:
+        plan = build_document_import_plan(
+            source_paths, _project_root(), destination, operation
+        )
+        plan["limitations"] = [
+            *plan["limitations"],
+            "未收到 confirmed=true；没有移动、复制或重建任何文件。",
+        ]
+        return plan
+    database_path = _database_path()
+    result = apply_document_import(
+        source_paths=source_paths,
+        project_root=_project_root(),
+        index_directory=database_path.parent,
+        destination=destination,
+        operation=operation,
+        plan_token=plan_token,
+    )
+    result["index_status"] = _index_status_for_database(database_path)
+    return result
+
+
+@mcp.tool()
+def rebuild_shared_index(confirmed: bool = False) -> dict[str, object]:
+    """Preview or explicitly rebuild the committed shared index from the project root."""
+    project_root = _project_root()
+    index_directory = _database_path().parent
+    if not confirmed:
+        return {
+            "status": "confirmation_required",
+            "project_root": str(project_root),
+            "index_directory": str(index_directory),
+            "will_rebuild_shared_index": True,
+            "limitations": [
+                "未收到 confirmed=true；现有 SQLite 和图片资产保持不变。"
+            ],
+        }
+    result = rebuild_index_files(project_root, index_directory)
+    result["index_status"] = _index_status_for_database(
+        index_directory / "knowledge.sqlite"
+    )
+    return result
+
+
 def _database_path() -> Path:
     configured = os.environ.get("GAME_DESIGN_INDEX_DIR")
     if not configured:
@@ -960,6 +1039,22 @@ def _database_path() -> Path:
     if not database_path.is_file():
         raise FileNotFoundError(f"Knowledge index does not exist: {database_path}")
     return database_path
+
+
+def _project_root() -> Path:
+    configured = os.environ.get("GAME_DESIGN_PROJECT_ROOT")
+    if configured:
+        project_root = Path(configured).expanduser().resolve()
+    else:
+        index_directory = _database_path().parent
+        if index_directory.parent.name != ".index":
+            raise RuntimeError(
+                "GAME_DESIGN_PROJECT_ROOT is required for document import tools"
+            )
+        project_root = index_directory.parent.parent.resolve()
+    if not project_root.is_dir():
+        raise FileNotFoundError(f"Game-design project root does not exist: {project_root}")
+    return project_root
 
 
 def main() -> None:

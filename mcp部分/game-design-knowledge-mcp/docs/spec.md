@@ -58,7 +58,12 @@ find_feature(name)
 get_feature_evidence(name, include_documents=True, include_configs=True, include_images=True)
 search_config_cells(query, workbook=None, sheet=None, limit=50)
 get_sheet_range(workbook, sheet, range)
+plan_document_import(source_paths, destination="docs", operation="copy")
+import_documents(source_paths, plan_token, destination="docs", operation="copy", confirmed=False)
+rebuild_shared_index(confirmed=False)
 ```
+
+三个写入相关工具遵循 [`import-policy.md`](import-policy.md)：预览不写入，导入必须携带未失效的计划令牌和明确确认；目标固定、防覆盖，建库失败恢复文件并保留旧索引。
 
 ## 统一查询结果
 
@@ -132,6 +137,9 @@ knowledge/catalog.json
 4. `get_evidence`返回命中块及相邻块，不越过文档边界。
 5. `index_status`显示6份样例文档未过期。
 6. 样例中的13张图片仍可搜索和定位。
+7. 未确认的导入只返回计划，不移动、复制或重建文件。
+8. 确认导入后按扩展名分类并原子重建；损坏文件触发回滚。
+9. 第三方客户端启动后可以发现三个导入/重建工具。
 
 ## 完成标准
 
@@ -141,4 +149,5 @@ knowledge/catalog.json
 - 不存在未经确认的别名联想。
 - SQLite schema版本为2。
 - 构建失败不覆盖旧索引。
+- 导入失败不遗留本次文件操作，且禁止覆盖同名资料。
 - README和新电脑搭建指南与实现一致。

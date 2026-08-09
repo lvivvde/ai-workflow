@@ -138,11 +138,12 @@ uv run game-design-knowledge index `
 
 ## 7. 配置 MCP 客户端
 
-先取得两条本机绝对路径：
+先取得三条本机绝对路径：
 
 ```powershell
 Resolve-Path .venv\Scripts\game-design-knowledge-mcp.exe
 Resolve-Path .index\knowledge
+Resolve-Path .
 ```
 
 把结果填入 MCP 客户端配置：
@@ -153,7 +154,8 @@ Resolve-Path .index\knowledge
     "game-design-knowledge": {
       "command": "D:\\你的仓库路径\\mcp部分\\game-design-knowledge-mcp\\.venv\\Scripts\\game-design-knowledge-mcp.exe",
       "env": {
-        "GAME_DESIGN_INDEX_DIR": "D:\\你的仓库路径\\mcp部分\\game-design-knowledge-mcp\\.index\\knowledge"
+        "GAME_DESIGN_INDEX_DIR": "D:\\你的仓库路径\\mcp部分\\game-design-knowledge-mcp\\.index\\knowledge",
+        "GAME_DESIGN_PROJECT_ROOT": "D:\\你的仓库路径\\mcp部分\\game-design-knowledge-mcp"
       }
     }
   }
@@ -164,7 +166,43 @@ Resolve-Path .index\knowledge
 
 - 不要复制其他电脑的绝对路径。
 - `GAME_DESIGN_INDEX_DIR` 指向包含 `knowledge.sqlite` 的目录，不是 SQLite 文件本身。
+- `GAME_DESIGN_PROJECT_ROOT` 指向本 MCP 项目根目录，导入工具只会写入该目录下的固定资料目录和共享索引。
 - 修改 MCP 配置后需要重启 AI 客户端。
+
+## 7.1 让第三方 AI 分类文件并生成 SQLite
+
+第三方 AI 只要能通过 MCP Server 读取待导入文件的本机绝对路径，就可以完成分类和建库。推荐直接告诉 AI：
+
+```text
+请把这些文件作为正式策划资料导入。先给我展示移动/复制计划，
+我确认后再执行，并在完成后验证索引。
+```
+
+AI 必须按以下顺序操作：
+
+1. 调用 `plan_document_import`：
+   - `source_paths`：一个或多个本机 DOCX/XLSX 绝对路径。
+   - `destination="docs"`：正式项目资料。
+   - `destination="examples"`：仅用于用户明确指定的测试/示例资料。
+   - `operation="copy"`：默认选择，保留原文件。
+   - `operation="move"`：只有用户明确要求移动时选择。
+2. 把工具返回的每个源路径、目标路径、操作和冲突情况展示给用户。
+3. 用户明确确认后，使用完全相同的参数、返回的 `plan_token`，调用 `import_documents(..., confirmed=true)`。
+4. 工具把文件放到对应 `docx/` 或 `xlsx/` 目录，随后原子重建 `.index/knowledge/knowledge.sqlite` 和图片资产。
+5. 检查返回的 `index_status.is_stale` 必须为 `false`，再报告完成。
+
+安全边界：
+
+- 只接受 DOCX/XLSX，最多一次 100 个文件。
+- 拒绝符号链接、`.git/`、`.venv/`、`.index/` 中的输入文件。
+- 永不覆盖同名目标文件。
+- 计划生成后文件内容或路径发生变化，`plan_token` 会失效，必须重新预览确认。
+- 复制/移动或解析失败时，新文件会回滚，旧 SQLite 保持可用。
+- 不允许 AI 直接写 SQLite 表，也不会自动生成未被文档明确记载的玩法别名。
+
+如果文件已经由人工放入项目目录，只需要更新索引，AI 先调用 `rebuild_shared_index(confirmed=false)` 展示计划，用户确认后再调用 `rebuild_shared_index(confirmed=true)`。
+
+导入完成后应将工具返回的 `git_paths_to_commit` 纳入同一个提交，使其他电脑拉取后无需再次建库。
 
 ## 8. 配置严格文档证据规则
 
@@ -178,6 +216,7 @@ examples/client-rules/AGENTS.example.md
 
 ```text
 docs/evidence-policy.md
+docs/import-policy.md
 ```
 
 核心约束是：只使用文档证据；未找到时明确回答未找到；禁止自动联想玩法、猜测设计意图或创建别名。

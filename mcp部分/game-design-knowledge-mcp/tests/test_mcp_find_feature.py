@@ -153,6 +153,18 @@ class FindFeatureMcpTests(unittest.IsolatedAsyncioTestCase):
             )
             self._run_index(source_path, output_path, check=True)
 
+            catalog_path.write_bytes(
+                json.dumps(valid_catalog, ensure_ascii=False, indent=2)
+                .replace("\n", "\r\n")
+                .encode("utf-8")
+            )
+            from game_design_knowledge.server import _index_status_for_database
+
+            formatting_only_status = _index_status_for_database(
+                output_path / "knowledge.sqlite"
+            )
+            self.assertFalse(formatting_only_status["catalog_is_stale"])
+
             invalid_catalog = valid_catalog.copy()
             invalid_catalog["features"] = [dict(valid_catalog["features"][0])]
             invalid_catalog["features"][0]["aliases"] = ["未经确认的字符串外号"]

@@ -13,6 +13,44 @@ import zipfile
 
 
 class IncrementalIndexCliTests(unittest.TestCase):
+    def test_committed_index_remains_fresh_after_checkout_moves(self) -> None:
+        from game_design_knowledge.server import _index_status_for_database
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            workspace = Path(temporary_directory)
+            first_checkout = workspace / "checkout-a"
+            source = first_checkout / "examples" / "sample-corpus"
+            output = first_checkout / ".index" / "knowledge"
+            source.mkdir(parents=True)
+            document = source / "玩法.docx"
+            self._write_docx(document, "每日开放5次")
+
+            self._index(source, output)
+            database_path = output / "knowledge.sqlite"
+            with closing(sqlite3.connect(database_path)) as connection:
+                stored_path = connection.execute(
+                    "SELECT path FROM documents"
+                ).fetchone()[0]
+            self.assertFalse(Path(stored_path).is_absolute())
+
+            second_checkout = workspace / "checkout-b"
+            first_checkout.rename(second_checkout)
+            moved_document = second_checkout / "examples" / "sample-corpus" / "玩法.docx"
+            moved_database = second_checkout / ".index" / "knowledge" / "knowledge.sqlite"
+
+            source_stat = moved_document.stat()
+            os.utime(
+                moved_document,
+                ns=(source_stat.st_atime_ns, source_stat.st_mtime_ns + 2_000_000_000),
+            )
+            relocated_status = _index_status_for_database(moved_database)
+            self.assertFalse(relocated_status["is_stale"])
+
+            self._write_docx(moved_document, "每日开放8次")
+            changed_status = _index_status_for_database(moved_database)
+            self.assertTrue(changed_status["is_stale"])
+            self.assertEqual(changed_status["stale_documents"], 1)
+
     def test_unchanged_changed_and_removed_documents_are_synchronized_by_sha(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             workspace = Path(temporary_directory)
@@ -73,7 +111,10 @@ class IncrementalIndexCliTests(unittest.TestCase):
                 self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 1)
 
     def test_shared_image_asset_is_removed_only_after_its_last_document_is_deleted(self) -> None:
-        from test_cli_index_docx import IndexDocxFromCliTests
+        try:
+            from tests.test_cli_index_docx import IndexDocxFromCliTests
+        except ModuleNotFoundError:
+            from test_cli_index_docx import IndexDocxFromCliTests
 
         with tempfile.TemporaryDirectory() as temporary_directory:
             workspace = Path(temporary_directory)

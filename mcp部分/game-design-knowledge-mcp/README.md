@@ -5,7 +5,7 @@
 ## 定位
 
 - DOCX、XLSX、CSV、Markdown 等原始文件始终是唯一真源。
-- SQLite 是可删除、可重建的派生索引，不承载人工维护的数据。
+- SQLite 是可删除、可重建的派生索引，不承载人工维护的数据；正式共享索引可以随项目提交。
 - AI 先查询索引，再按命中位置读取少量原文，并在回答中返回文件、章节、工作表、行号或单元格等出处。
 - 优先支持精确 ID、字段和全文检索；语义向量检索作为后续增强，不替代精确查询。
 
@@ -15,12 +15,13 @@
 game-design-knowledge-mcp/
 ├── README.md
 ├── docs/                 # 按文件格式分类的策划原始资料
+├── .index/knowledge/     # 可提交的预构建共享索引与图片资产
 ├── src/                  # 文件解析、增量索引、SQLite、MCP 服务
 ├── tests/                # 单元测试、集成测试和测试夹具
-└── examples/             # 脱敏示例资料和示例配置
+└── examples/             # 项目内部共享资料和示例配置
 ```
 
-`docs/` 可以直接作为本地待索引资料目录。真实项目资料是否提交 Git，由团队的保密和版本管理策略决定；生成的 SQLite 索引库不应提交。
+`docs/` 和 `examples/` 都属于当前项目内部资料，可以随私有项目仓库提交，无需为了本工作流额外脱敏。`.index/knowledge/` 是团队共享的预构建索引：一名成员在资料变化后重建并提交，其他成员拉取后即可直接查询，不需要重复建库。资料与索引不得脱离项目访问边界传播。
 
 ## 第一阶段目标
 
@@ -58,7 +59,7 @@ uv sync --locked
 uv run python -m unittest discover -s tests -v
 ```
 
-Windows 上也可以一条命令完成锁定安装、测试、示例建库，并生成本机 MCP 配置：
+Windows 上也可以一条命令完成锁定安装、测试、复用并验证共享索引，以及生成本机 MCP 配置：
 
 ```powershell
 .\scripts\bootstrap.ps1
@@ -85,10 +86,10 @@ uv run python tools/smoke_stdio.py .index/knowledge
 ## 建立示例索引
 
 ```powershell
-uv run game-design-knowledge index examples/sample-corpus --output .index/knowledge
+uv run game-design-knowledge index . --output .index/knowledge
 ```
 
-索引目录是可重建产物，已被 Git 忽略。当前公开示例包含 3 个 DOCX 和 3 个 XLSX。
+`.index/knowledge` 会提交到项目仓库。源文档路径以相对索引目录的形式保存；另一台电脑即使仓库绝对路径和文件修改时间不同，只要内容 SHA256 一致，索引仍可直接使用。资料变化后由维护者重建并把 SQLite 与 `assets/` 一起提交。
 
 ## 启动 MCP Server
 

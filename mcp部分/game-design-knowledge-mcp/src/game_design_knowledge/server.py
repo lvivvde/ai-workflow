@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import closing
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -16,6 +17,9 @@ mcp = MCPServer(
     "game-design-knowledge",
     instructions=EVIDENCE_POLICY,
 )
+
+
+_FRESHNESS_HASH_CACHE: dict[tuple[str, int, int], str] = {}
 
 
 @mcp.tool()
@@ -40,39 +44,29 @@ def _index_status_for_database(database_path: Path) -> dict[str, object]:
             """
         ).fetchone()
         documents = connection.execute(
-            "SELECT path, source_size, source_mtime_ns, indexed_at FROM documents"
+            """
+            SELECT path, source_size, source_mtime_ns, source_sha256, indexed_at
+            FROM documents
+            """
         ).fetchall()
         catalog = connection.execute(
-            "SELECT path, source_size, source_mtime_ns, indexed_at FROM catalog_metadata WHERE id = 1"
+            """
+            SELECT path, source_size, source_mtime_ns, source_sha256, indexed_at
+            FROM catalog_metadata WHERE id = 1
+            """
         ).fetchone()
 
     stale_documents = 0
     for document in documents:
-        source_path = Path(document["path"])
-        try:
-            source_stat = source_path.stat()
-        except OSError:
-            stale_documents += 1
-            continue
-        if (
-            source_stat.st_size != document["source_size"]
-            or source_stat.st_mtime_ns != document["source_mtime_ns"]
-        ):
+        source_path = _resolve_source_path(database_path, document["path"])
+        if not _source_matches_index(source_path, document):
             stale_documents += 1
 
     indexed_at = max((document["indexed_at"] for document in documents), default=None)
     catalog_is_stale = False
     if catalog is not None:
-        catalog_path = Path(catalog["path"])
-        try:
-            catalog_stat = catalog_path.stat()
-        except OSError:
-            catalog_is_stale = True
-        else:
-            catalog_is_stale = (
-                catalog_stat.st_size != catalog["source_size"]
-                or catalog_stat.st_mtime_ns != catalog["source_mtime_ns"]
-            )
+        catalog_path = _resolve_source_path(database_path, catalog["path"])
+        catalog_is_stale = not _source_matches_index(catalog_path, catalog)
         if indexed_at is None or catalog["indexed_at"] > indexed_at:
             indexed_at = catalog["indexed_at"]
     return {
@@ -89,6 +83,53 @@ def _index_status_for_database(database_path: Path) -> dict[str, object]:
         "catalog_is_stale": catalog_is_stale,
         "is_stale": stale_documents > 0 or catalog_is_stale,
     }
+
+
+def _resolve_source_path(database_path: Path, stored_path: str) -> Path:
+    source_path = Path(stored_path)
+    if source_path.is_absolute():
+        return source_path
+    return (database_path.parent / source_path).resolve()
+
+
+def _source_matches_index(source_path: Path, record: sqlite3.Row) -> bool:
+    try:
+        source_stat = source_path.stat()
+    except OSError:
+        return False
+    if source_stat.st_size != record["source_size"]:
+        return False
+
+    cache_key = (str(source_path), source_stat.st_size, source_stat.st_mtime_ns)
+    actual_hash = _FRESHNESS_HASH_CACHE.get(cache_key)
+    if actual_hash is None:
+        digest = hashlib.sha256()
+        with source_path.open("rb") as source_file:
+            for chunk in iter(lambda: source_file.read(1024 * 1024), b""):
+                digest.update(chunk)
+        actual_hash = digest.hexdigest()
+        _FRESHNESS_HASH_CACHE[cache_key] = actual_hash
+    return actual_hash == record["source_sha256"]
+
+
+def _resolve_result_source(database_path: Path, item: dict[str, object]) -> None:
+    source_document = item.get("source_document")
+    if source_document is not None:
+        item["source_document"] = str(
+            _resolve_source_path(database_path, str(source_document))
+        )
+
+
+def _stored_path_selector(database_path: Path, value: str | None) -> str | None:
+    if value is None:
+        return None
+    requested_path = Path(value)
+    if not requested_path.is_absolute():
+        return value.replace("\\", "/")
+    try:
+        return Path(os.path.relpath(requested_path, database_path.parent)).as_posix()
+    except ValueError:
+        return str(requested_path)
 
 
 @mcp.tool()
@@ -130,6 +171,7 @@ def search_images(query: str, limit: int = 10) -> dict[str, list[dict[str, objec
         ).fetchall()
     matches = [dict(row) for row in rows]
     for match in matches:
+        _resolve_result_source(database_path, match)
         match["asset_path"] = str((database_path.parent / str(match["asset_path"])).resolve())
     return {"matches": matches}
 
@@ -223,6 +265,7 @@ def search_evidence(
     evidence = []
     for row in rows:
         item = dict(row)
+        _resolve_result_source(database_path, item)
         item["section_path"] = json.loads(item["section_path"])
         item["locator"] = json.loads(item["locator"])
         evidence.append(item)
@@ -362,6 +405,7 @@ def get_evidence(
     evidence.pop("document_id")
     evidence.pop("source_table")
     evidence.pop("source_record_id")
+    _resolve_result_source(database_path, evidence)
     evidence["section_path"] = json.loads(evidence["section_path"])
     evidence["locator"] = json.loads(evidence["locator"])
     return {
@@ -396,6 +440,7 @@ def search_config_cells(
         raise ValueError("limit must be between 1 and 200")
 
     database_path = _database_path()
+    stored_workbook = _stored_path_selector(database_path, workbook)
     with closing(sqlite3.connect(database_path)) as connection:
         connection.row_factory = sqlite3.Row
         rows = connection.execute(
@@ -429,10 +474,10 @@ def search_config_cells(
                 query,
                 query,
                 query,
-                workbook,
-                workbook,
-                f"%/{workbook}" if workbook is not None else None,
-                f"%\\{workbook}" if workbook is not None else None,
+                stored_workbook,
+                stored_workbook,
+                f"%/{stored_workbook}" if stored_workbook is not None else None,
+                f"%\\{stored_workbook}" if stored_workbook is not None else None,
                 sheet,
                 sheet,
                 limit,
@@ -442,6 +487,7 @@ def search_config_cells(
     cells = []
     for row in rows:
         cell = dict(row)
+        _resolve_result_source(database_path, cell)
         cell["workbook"] = Path(cell["source_document"]).name
         cells.append(cell)
     status_summary = _index_status_for_database(database_path)
@@ -476,6 +522,7 @@ def get_sheet_range(workbook: str, sheet: str, range: str) -> dict[str, object]:
     )
 
     database_path = _database_path()
+    stored_workbook = _stored_path_selector(database_path, workbook)
     with closing(sqlite3.connect(database_path)) as connection:
         connection.row_factory = sqlite3.Row
         sheets = connection.execute(
@@ -487,7 +534,12 @@ def get_sheet_range(workbook: str, sheet: str, range: str) -> dict[str, object]:
               AND (d.path = ? OR d.path LIKE ? OR d.path LIKE ?)
             ORDER BY d.path
             """,
-            (sheet, workbook, f"%/{workbook}", f"%\\{workbook}"),
+            (
+                sheet,
+                stored_workbook,
+                f"%/{stored_workbook}",
+                f"%\\{stored_workbook}",
+            ),
         ).fetchall()
         if not sheets:
             return {
@@ -505,7 +557,10 @@ def get_sheet_range(workbook: str, sheet: str, range: str) -> dict[str, object]:
                 "sheet": sheet,
                 "range": normalized_range,
                 "cells": [],
-                "candidates": [item["source_document"] for item in sheets],
+                "candidates": [
+                    str(_resolve_source_path(database_path, item["source_document"]))
+                    for item in sheets
+                ],
                 "limitations": ["存在多个同名工作簿，请使用完整路径。"],
             }
         cells = connection.execute(
@@ -536,10 +591,13 @@ def get_sheet_range(workbook: str, sheet: str, range: str) -> dict[str, object]:
         ).fetchall()
 
     status_summary = _index_status_for_database(database_path)
+    source_document = str(
+        _resolve_source_path(database_path, sheets[0]["source_document"])
+    )
     return {
         "status": "stale" if status_summary["is_stale"] else "found",
-        "source_document": sheets[0]["source_document"],
-        "workbook": Path(sheets[0]["source_document"]).name,
+        "source_document": source_document,
+        "workbook": Path(source_document).name,
         "sheet": sheet,
         "range": normalized_range,
         "cells": [dict(cell) for cell in cells],
@@ -826,13 +884,19 @@ def get_feature_evidence(
     documents = []
     for row in document_rows:
         item = dict(row)
+        _resolve_result_source(database_path, item)
         item["section_path"] = json.loads(item["section_path"])
         item["locator"] = json.loads(item["locator"])
         documents.append(item)
-    configs = [dict(row) for row in config_rows]
+    configs = []
+    for row in config_rows:
+        item = dict(row)
+        _resolve_result_source(database_path, item)
+        configs.append(item)
     images = []
     for row in image_rows:
         item = dict(row)
+        _resolve_result_source(database_path, item)
         item["asset_path"] = str((database_path.parent / item["asset_path"]).resolve())
         images.append(item)
     status_summary = _index_status_for_database(database_path)
@@ -883,6 +947,7 @@ def get_image_context(image_id: int) -> dict[str, object]:
     if row is None:
         raise ValueError(f"Image {image_id} was not found in the index")
     result = dict(row)
+    _resolve_result_source(database_path, result)
     result["asset_path"] = str((database_path.parent / str(result["asset_path"])).resolve())
     return result
 

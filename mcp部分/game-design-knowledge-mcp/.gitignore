@@ -1,5 +1,5 @@
 .venv/
-.index/
+.index/*
 dist/
 build/
 *.sqlite
@@ -7,3 +7,9 @@ build/
 *.sqlite-wal
 __pycache__/
 *.py[cod]
+
+# The production-ready shared index is intentionally versioned.
+!.index/knowledge/
+!.index/knowledge/knowledge.sqlite
+!.index/knowledge/assets/
+!.index/knowledge/assets/**

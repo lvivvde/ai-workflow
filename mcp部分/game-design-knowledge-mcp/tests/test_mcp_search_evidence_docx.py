@@ -85,10 +85,11 @@ class SearchDocxEvidenceMcpTests(unittest.TestCase):
             document_path = source_dir / "活动系统.docx"
             self._write_docx(document_path)
             self._index(source_dir, output_dir)
-            original_stat = document_path.stat()
+            self._write_docx(document_path, participation_count=8)
+            changed_stat = document_path.stat()
             os.utime(
                 document_path,
-                ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns + 5_000_000_000),
+                ns=(changed_stat.st_atime_ns, changed_stat.st_mtime_ns + 5_000_000_000),
             )
 
             previous_index = os.environ.get("GAME_DESIGN_INDEX_DIR")
@@ -139,13 +140,13 @@ class SearchDocxEvidenceMcpTests(unittest.TestCase):
             raise AssertionError(completed.stderr)
 
     @staticmethod
-    def _write_docx(path: Path) -> None:
-        document_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    def _write_docx(path: Path, participation_count: int = 5) -> None:
+        document_xml = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:body>
     <w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>活动系统</w:t></w:r></w:p>
     <w:p><w:pPr><w:pStyle w:val="Heading2"/></w:pPr><w:r><w:t>幸运转盘</w:t></w:r></w:p>
-    <w:p><w:r><w:t>玩家每日可参与5次。</w:t></w:r></w:p>
+    <w:p><w:r><w:t>玩家每日可参与{participation_count}次。</w:t></w:r></w:p>
   </w:body>
 </w:document>
 """

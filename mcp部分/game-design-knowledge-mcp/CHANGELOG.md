@@ -8,3 +8,4 @@
 - 提供严格的 `found`、`not_found`、`ambiguous`、`stale` 返回契约。
 - 支持人工确认的正式玩法目录和别名，禁止自动联想。
 - 支持按文件 SHA 增量更新和 staging 原子发布。
+- 随项目提交可移植的 `.index/knowledge` 共享索引，其他成员拉取后可直接部署查询。

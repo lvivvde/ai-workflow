@@ -1,8 +1,9 @@
 [CmdletBinding()]
 param(
-    [string]$Source = "examples\sample-corpus",
+    [string]$Source = ".",
     [string]$Output = ".index\knowledge",
-    [switch]$SkipTests
+    [switch]$SkipTests,
+    [switch]$RebuildIndex
 )
 
 $ErrorActionPreference = "Stop"
@@ -30,8 +31,18 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Test suite failed; index was not built" }
     }
 
-    & uv run game-design-knowledge index $Source --output $Output
-    if ($LASTEXITCODE -ne 0) { throw "Index build failed" }
+    $databasePath = Join-Path $Output "knowledge.sqlite"
+    $customIndexRequest = $PSBoundParameters.ContainsKey("Source") -or $PSBoundParameters.ContainsKey("Output")
+    if ($RebuildIndex -or $customIndexRequest -or -not (Test-Path -LiteralPath $databasePath -PathType Leaf)) {
+        & uv run game-design-knowledge index $Source --output $Output
+        if ($LASTEXITCODE -ne 0) { throw "Index build failed" }
+    }
+    else {
+        Write-Host "Using the committed shared index: $databasePath"
+    }
+
+    & uv run python tools\smoke_stdio.py $Output
+    if ($LASTEXITCODE -ne 0) { throw "MCP smoke test failed for the selected index" }
 
     $serverPath = (Resolve-Path ".venv\Scripts\game-design-knowledge-mcp.exe").Path
     $indexPath = (Resolve-Path $Output).Path

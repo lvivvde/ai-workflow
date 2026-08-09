@@ -46,7 +46,13 @@ cd "<仓库路径>\mcp部分\game-design-knowledge-mcp"
 .\scripts\bootstrap.ps1
 ```
 
-脚本会依次执行锁定依赖安装、完整测试、示例索引构建，并输出包含本机绝对路径的 MCP JSON。索引实际项目资料时使用：
+脚本会依次执行锁定依赖安装、完整测试、验证仓库自带的共享索引，并输出包含本机绝对路径的 MCP JSON。默认不会重复建库；仅在共享索引缺失时自动创建。资料变化后需要重建时使用：
+
+```powershell
+.\scripts\bootstrap.ps1 -RebuildIndex
+```
+
+索引仓库外的其他资料时使用独立输出目录：
 
 ```powershell
 .\scripts\bootstrap.ps1 `
@@ -84,11 +90,26 @@ uv run python -m unittest discover -s tests -v
 
 当前版本的全部测试都应通过。任何测试失败时先停止，不要继续配置 MCP。
 
-## 5. 建立示例索引
+## 5. 使用或重建共享索引
+
+仓库已经包含以下共享索引，普通使用者拉取后无需执行建库命令：
+
+```text
+.index/knowledge/knowledge.sqlite
+.index/knowledge/assets/
+```
+
+需要验证它可以启动 MCP 时运行：
+
+```powershell
+uv run python tools/smoke_stdio.py .index/knowledge
+```
+
+只有原始资料或人工目录发生变化时，维护者才需要重建：
 
 ```powershell
 uv run game-design-knowledge index `
-  examples/sample-corpus `
+  . `
   --output .index/knowledge
 ```
 
@@ -99,14 +120,7 @@ uv run game-design-knowledge index `
 
 OCR统计取决于本机是否安装 Tesseract。未安装时，13 张图片应记录为 `ocr_unavailable`。
 
-生成文件位于：
-
-```text
-.index/knowledge/knowledge.sqlite
-.index/knowledge/assets/
-```
-
-`.index/` 是可重建产物，已被 Git 忽略。新电脑拉取仓库后不会自带 SQLite，必须在本机重新生成。
+重建成功后，把 `.index/knowledge/knowledge.sqlite` 和 `.index/knowledge/assets/` 与原始资料一起提交。数据库中的源文档路径使用相对索引目录的形式；另一台电脑的仓库绝对路径和 Git checkout 文件时间即使不同，只要 SHA256 内容一致，`index_status()` 也不会误报过期。
 
 索引命令使用 staging 构建：全部成功后才替换正式索引；失败不会覆盖已有可用索引。
 
@@ -226,10 +240,12 @@ $env:GAME_DESIGN_OCR_LANG = "chi_sim+eng"
 git pull
 uv sync --locked
 uv run python -m unittest discover -s tests -v
-uv run game-design-knowledge index examples/sample-corpus --output .index/knowledge
+uv run game-design-knowledge index . --output .index/knowledge
+uv run python tools/smoke_stdio.py .index/knowledge
+git add .index/knowledge
 ```
 
-原始资料修改后，重新运行相同索引命令即可。未变化文件按 SHA 复用，变化文件在 staging 中替换，删除文件同步清理；全部成功后才发布。也可以先通过 `index_status()` 检查 `is_stale`。
+原始资料修改后，由一名维护者重新运行相同索引命令并把原文与索引放在同一个提交中。未变化文件按 SHA 复用，变化文件在 staging 中替换，删除文件同步清理；全部成功后才发布。其他成员拉取该提交即可复用。也可以先通过 `index_status()` 检查 `is_stale`。
 
 人工确认的玩法与别名写入 `knowledge/catalog.json`。别名必须是包含 `name`、`confirmed_at`、`confirmed_by` 的对象；MCP 不会自动添加外号。
 
@@ -237,7 +253,7 @@ uv run game-design-knowledge index examples/sample-corpus --output .index/knowle
 
 ### 看不到 SQLite
 
-索引在点目录 `.index/` 中，并被 Git 忽略。使用 PowerShell查看：
+索引在点目录 `.index/` 中。正式共享目录 `.index/knowledge/` 已提交到 Git；使用 PowerShell 查看：
 
 ```powershell
 Get-ChildItem -Force .index\knowledge
@@ -265,18 +281,16 @@ Tesseract不在 `PATH` 中。这不影响图片提取、标题搜索和位置查
 
 这是严格证据模式的预期行为。只有文档明确记载或用户明确确认的别名才允许使用，AI不会自动联想。
 
-## 13. 不应提交的文件
+## 13. 提交边界
 
 以下内容只属于本机：
 
 ```text
 .venv/
-.index/
-*.sqlite
 *.sqlite-shm
 *.sqlite-wal
 __pycache__/
 *.pyc
 ```
 
-示例文档可以提交；真实项目资料是否提交，必须遵循团队的保密和版本管理策略。
+`.index/knowledge/knowledge.sqlite` 与 `.index/knowledge/assets/` 是明确例外，应和当前项目内部资料一起提交。其他临时索引目录默认仍被忽略。`docs/`、`examples/` 中的资料服从项目仓库本身的访问权限，无需额外脱敏，但不得发布到项目环境之外。

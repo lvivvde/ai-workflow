@@ -46,7 +46,7 @@ def index_documents(source: Path, output: Path) -> dict[str, int]:
     documents_removed = 0
     assets_removed = 0
     current_paths = {
-        str(path.resolve())
+        _stored_source_path(path, output)
         for pattern in ("*.docx", "*.xlsx")
         for path in source.rglob(pattern)
     }
@@ -58,9 +58,11 @@ def index_documents(source: Path, output: Path) -> dict[str, int]:
                 f"version {SCHEMA_VERSION}; delete the derived index and rebuild it"
             )
         _create_schema(connection)
-        features_indexed, aliases_indexed = _index_catalog(source, connection)
+        features_indexed, aliases_indexed = _index_catalog(source, output, connection)
         for document_path in sorted(source.rglob("*.docx")):
-            document_id, action = _prepare_document(connection, document_path, "docx")
+            document_id, action = _prepare_document(
+                connection, document_path, "docx", output
+            )
             documents_indexed += 1
             documents_added += action == "added"
             documents_updated += action == "updated"
@@ -167,7 +169,9 @@ def index_documents(source: Path, output: Path) -> dict[str, int]:
                 ocr_failed += ocr_status == "failed"
                 ocr_unavailable += ocr_status == "unavailable"
         for document_path in sorted(source.rglob("*.xlsx")):
-            document_id, action = _prepare_document(connection, document_path, "xlsx")
+            document_id, action = _prepare_document(
+                connection, document_path, "xlsx", output
+            )
             documents_indexed += 1
             documents_added += action == "added"
             documents_updated += action == "updated"
@@ -478,7 +482,9 @@ def _create_schema(connection: sqlite3.Connection) -> None:
     )
 
 
-def _index_catalog(source: Path, connection: sqlite3.Connection) -> tuple[int, int]:
+def _index_catalog(
+    source: Path, output: Path, connection: sqlite3.Connection
+) -> tuple[int, int]:
     connection.execute("DELETE FROM catalog_aliases")
     connection.execute("DELETE FROM catalog_features")
     connection.execute("DELETE FROM catalog_metadata")
@@ -536,7 +542,7 @@ def _index_catalog(source: Path, connection: sqlite3.Connection) -> tuple[int, i
         ) VALUES (1, ?, ?, ?, ?, ?)
         """,
         (
-            str(catalog_path.resolve()),
+            _stored_source_path(catalog_path, output),
             catalog_stat.st_size,
             catalog_stat.st_mtime_ns,
             _file_sha256(catalog_path),
@@ -561,13 +567,13 @@ def _required_catalog_text(record: dict[str, object], field: str) -> str:
 
 
 def _prepare_document(
-    connection: sqlite3.Connection, path: Path, document_type: str
+    connection: sqlite3.Connection, path: Path, document_type: str, output: Path
 ) -> tuple[int, str]:
-    resolved_path = str(path.resolve())
+    stored_path = _stored_source_path(path, output)
     source_hash = _file_sha256(path)
     source_stat = path.stat()
     existing = connection.execute(
-        "SELECT id, source_sha256 FROM documents WHERE path = ?", (resolved_path,)
+        "SELECT id, source_sha256 FROM documents WHERE path = ?", (stored_path,)
     ).fetchone()
     indexed_at = datetime.now(timezone.utc).isoformat()
     if existing is not None and existing[1] == source_hash:
@@ -592,7 +598,7 @@ def _prepare_document(
         ) VALUES (?, ?, ?, ?, ?, ?)
         """,
         (
-            resolved_path,
+            stored_path,
             document_type,
             source_stat.st_size,
             source_stat.st_mtime_ns,
@@ -601,6 +607,16 @@ def _prepare_document(
         ),
     ).lastrowid
     return document_id, action
+
+
+def _stored_source_path(path: Path, output: Path) -> str:
+    """Store a portable path when source and index are on the same filesystem."""
+    resolved_path = path.resolve()
+    try:
+        relative_path = os.path.relpath(resolved_path, output.resolve())
+    except ValueError:
+        return str(resolved_path)
+    return Path(relative_path).as_posix()
 
 
 def _delete_document(connection: sqlite3.Connection, document_id: int) -> None:

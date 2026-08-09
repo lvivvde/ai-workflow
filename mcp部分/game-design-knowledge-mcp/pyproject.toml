@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "game-design-knowledge-mcp"
+version = "1.0.0"
+description = "Local knowledge index and MCP server for game design documents"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=2,<3",
+]
+
+[project.scripts]
+game-design-knowledge = "game_design_knowledge.cli:main"
+game-design-knowledge-mcp = "game_design_knowledge.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/game_design_knowledge"]

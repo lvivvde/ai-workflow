@@ -1,0 +1,52 @@
+name: Game Design Knowledge MCP
+
+on:
+  push:
+    paths:
+      - "mcp部分/game-design-knowledge-mcp/**"
+      - ".github/workflows/game-design-knowledge.yml"
+  pull_request:
+    paths:
+      - "mcp部分/game-design-knowledge-mcp/**"
+      - ".github/workflows/game-design-knowledge.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: mcp部分/game-design-knowledge-mcp
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8
+        with:
+          version: "0.11.32"
+          enable-cache: true
+          cache-dependency-glob: mcp部分/game-design-knowledge-mcp/uv.lock
+
+      - name: Install locked environment
+        run: uv sync --locked
+
+      - name: Run tests
+        run: uv run python -m unittest discover -s tests -v
+
+      - name: Build sample index
+        run: uv run game-design-knowledge index examples/sample-corpus --output "$env:RUNNER_TEMP\game-design-index"
+
+      - name: Verify installed commands
+        run: |
+          uv run game-design-knowledge --help
+          uv run python -c "import shutil; assert shutil.which('game-design-knowledge-mcp')"
+
+      - name: Smoke-test stdio MCP server
+        run: uv run python tools/smoke_stdio.py "$env:RUNNER_TEMP\game-design-index"

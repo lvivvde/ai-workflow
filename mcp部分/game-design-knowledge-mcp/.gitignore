@@ -1,0 +1,9 @@
+.venv/
+.index/
+dist/
+build/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+__pycache__/
+*.py[cod]

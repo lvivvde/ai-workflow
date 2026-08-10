@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- 所有 shared-index 读取工具统一返回 freshness 状态，包括 `not_found`、`ambiguous` 和图片查询路径。
+- 单次查询复用一个 SQLite 连接和 freshness snapshot；源文档或目录过期时统一返回 `status=stale`。
+
 ## 1.1.0 - 2026-08-09
 
 - 增加第三方 AI 可调用的文档导入预览、确认导入与共享索引重建 MCP 工具。

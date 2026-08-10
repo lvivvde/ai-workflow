@@ -132,6 +132,8 @@ MCP 客户端配置示例：
 - `import_documents(..., plan_token, confirmed=true)`：按已确认计划复制或移动文件，并原子重建共享 SQLite；失败时恢复文件并保留旧索引。
 - `rebuild_shared_index(confirmed=false)`：预览或明确确认后重建共享索引。
 
+所有 shared-index 读取工具都会返回同一次读取对应的 `index_status`；只要源文档或人工目录已过期，顶层 `status` 就统一为 `stale`。
+
 ## 第三方 AI 导入资料
 
 第三方 AI 只连接本 MCP 也可以完成分类和建库，但必须遵循两步确认：

@@ -67,6 +67,10 @@ rebuild_shared_index(confirmed=False)
 
 ## 统一查询结果
 
+所有读取工具都返回同一次 shared-index 读取对应的 `index_status`。当
+`index_status.is_stale` 为 `true` 时，顶层 `status` 统一为 `stale`；其余字段仍保留
+原本的命中、空结果或歧义信息，调用方不得把过期索引当作当前事实。
+
 ```json
 {
   "status": "found",
@@ -89,7 +93,10 @@ rebuild_shared_index(confirmed=False)
   "query": "大风车",
   "match_type": null,
   "evidence": [],
-  "limitations": ["当前文档及已确认别名中未找到该名称"]
+  "limitations": ["当前文档及已确认别名中未找到该名称"],
+  "index_status": {
+    "is_stale": false
+  }
 }
 ```
 

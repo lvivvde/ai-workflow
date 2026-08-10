@@ -41,6 +41,8 @@ class GetImageContextMcpTests(unittest.TestCase):
                     os.environ["GAME_DESIGN_INDEX_DIR"] = previous_index
 
             context = result.structured_content
+            self.assertEqual(context["status"], "found")
+            self.assertFalse(context["index_status"]["is_stale"])
             self.assertEqual(context["source_document"], str(document_path.resolve()))
             self.assertEqual(context["document_type"], "docx")
             self.assertEqual(context["heading"], "战斗系统")
@@ -69,11 +71,41 @@ class GetImageContextMcpTests(unittest.TestCase):
                 else:
                     os.environ["GAME_DESIGN_INDEX_DIR"] = previous_index
 
-            matches = result.structured_content["matches"]
+            response = result.structured_content
+            self.assertEqual(response["status"], "found")
+            self.assertFalse(response["index_status"]["is_stale"])
+            matches = response["matches"]
             self.assertEqual(len(matches), 1)
             self.assertEqual(matches[0]["image_id"], 1)
             self.assertEqual(matches[0]["context_text"], "结算界面示意图")
             self.assertEqual(matches[0]["source_document"], str(document_path.resolve()))
+
+    def test_image_reads_report_stale_source_documents(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir)
+            source_dir = workspace / "documents"
+            output_dir = workspace / "index"
+            source_dir.mkdir()
+            document_path = source_dir / "战斗系统.docx"
+            self._write_docx(document_path)
+            self._index(source_dir, output_dir)
+            document_path.write_bytes(document_path.read_bytes() + b"changed")
+
+            previous_index = os.environ.get("GAME_DESIGN_INDEX_DIR")
+            os.environ["GAME_DESIGN_INDEX_DIR"] = str(output_dir)
+            try:
+                search = asyncio.run(self._search_images("结算界面"))
+                context = asyncio.run(self._call_tool())
+            finally:
+                if previous_index is None:
+                    os.environ.pop("GAME_DESIGN_INDEX_DIR", None)
+                else:
+                    os.environ["GAME_DESIGN_INDEX_DIR"] = previous_index
+
+            self.assertEqual(search.structured_content["status"], "stale")
+            self.assertTrue(search.structured_content["index_status"]["is_stale"])
+            self.assertEqual(context.structured_content["status"], "stale")
+            self.assertTrue(context.structured_content["index_status"]["is_stale"])
 
     def test_ai_can_check_index_status_through_mcp(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

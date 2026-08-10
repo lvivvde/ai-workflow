@@ -148,6 +148,7 @@ class SearchConfigCellsMcpTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(response["status"], "ambiguous")
             self.assertEqual(len(response["candidates"]), 2)
             self.assertEqual(response["cells"], [])
+            self.assertFalse(response["index_status"]["is_stale"])
 
     @staticmethod
     def _write_xlsx(path: Path) -> None:

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from contextlib import closing
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,17 +13,14 @@ from .ingest import (
     plan_document_import as build_document_import_plan,
     rebuild_shared_index as rebuild_index_files,
 )
-from .indexer import catalog_fingerprint
 from .policy import EVIDENCE_POLICY
+from .shared_index import SharedIndexRead, index_status_for_database
 
 
 mcp = MCPServer(
     "game-design-knowledge",
     instructions=EVIDENCE_POLICY,
 )
-
-
-_FRESHNESS_HASH_CACHE: dict[tuple[str, int, int], str] = {}
 
 
 @mcp.tool()
@@ -35,119 +30,11 @@ def index_status() -> dict[str, object]:
 
 
 def _index_status_for_database(database_path: Path) -> dict[str, object]:
-    with closing(sqlite3.connect(database_path)) as connection:
-        connection.row_factory = sqlite3.Row
-        schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
-        counts = connection.execute(
-            """
-            SELECT
-                (SELECT COUNT(*) FROM documents) AS documents_indexed,
-                COUNT(*) AS images_indexed,
-                COALESCE(SUM(ocr_status = 'succeeded'), 0) AS ocr_succeeded,
-                COALESCE(SUM(ocr_status = 'failed'), 0) AS ocr_failed,
-                COALESCE(SUM(ocr_status = 'unavailable'), 0) AS ocr_unavailable
-            FROM images
-            """
-        ).fetchone()
-        documents = connection.execute(
-            """
-            SELECT path, source_size, source_mtime_ns, source_sha256, indexed_at
-            FROM documents
-            """
-        ).fetchall()
-        catalog = connection.execute(
-            """
-            SELECT path, source_size, source_mtime_ns, source_sha256, indexed_at
-            FROM catalog_metadata WHERE id = 1
-            """
-        ).fetchone()
-
-    stale_documents = 0
-    for document in documents:
-        source_path = _resolve_source_path(database_path, document["path"])
-        if not _source_matches_index(source_path, document):
-            stale_documents += 1
-
-    indexed_at = max((document["indexed_at"] for document in documents), default=None)
-    catalog_is_stale = False
-    if catalog is not None:
-        catalog_path = _resolve_source_path(database_path, catalog["path"])
-        catalog_is_stale = not _catalog_matches_index(catalog_path, catalog)
-        if indexed_at is None or catalog["indexed_at"] > indexed_at:
-            indexed_at = catalog["indexed_at"]
-    return {
-        "schema_version": schema_version,
-        "database_path": str(database_path),
-        "indexed_at": indexed_at,
-        "documents_indexed": counts["documents_indexed"],
-        "images_indexed": counts["images_indexed"],
-        "ocr_succeeded": counts["ocr_succeeded"],
-        "ocr_failed": counts["ocr_failed"],
-        "ocr_unavailable": counts["ocr_unavailable"],
-        "stale_documents": stale_documents,
-        "catalog_configured": catalog is not None,
-        "catalog_is_stale": catalog_is_stale,
-        "is_stale": stale_documents > 0 or catalog_is_stale,
-    }
-
-
-def _resolve_source_path(database_path: Path, stored_path: str) -> Path:
-    source_path = Path(stored_path)
-    if source_path.is_absolute():
-        return source_path
-    return (database_path.parent / source_path).resolve()
-
-
-def _source_matches_index(source_path: Path, record: sqlite3.Row) -> bool:
-    try:
-        source_stat = source_path.stat()
-    except OSError:
-        return False
-    if source_stat.st_size != record["source_size"]:
-        return False
-
-    cache_key = (str(source_path), source_stat.st_size, source_stat.st_mtime_ns)
-    actual_hash = _FRESHNESS_HASH_CACHE.get(cache_key)
-    if actual_hash is None:
-        digest = hashlib.sha256()
-        with source_path.open("rb") as source_file:
-            for chunk in iter(lambda: source_file.read(1024 * 1024), b""):
-                digest.update(chunk)
-        actual_hash = digest.hexdigest()
-        _FRESHNESS_HASH_CACHE[cache_key] = actual_hash
-    return actual_hash == record["source_sha256"]
-
-
-def _catalog_matches_index(catalog_path: Path, record: sqlite3.Row) -> bool:
-    try:
-        catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        return False
-    return catalog_fingerprint(catalog) == record["source_sha256"]
-
-
-def _resolve_result_source(database_path: Path, item: dict[str, object]) -> None:
-    source_document = item.get("source_document")
-    if source_document is not None:
-        item["source_document"] = str(
-            _resolve_source_path(database_path, str(source_document))
-        )
-
-
-def _stored_path_selector(database_path: Path, value: str | None) -> str | None:
-    if value is None:
-        return None
-    requested_path = Path(value)
-    if not requested_path.is_absolute():
-        return value.replace("\\", "/")
-    try:
-        return Path(os.path.relpath(requested_path, database_path.parent)).as_posix()
-    except ValueError:
-        return str(requested_path)
+    return index_status_for_database(database_path)
 
 
 @mcp.tool()
-def search_images(query: str, limit: int = 10) -> dict[str, list[dict[str, object]]]:
+def search_images(query: str, limit: int = 10) -> dict[str, object]:
     """Search document evidence only; an empty result must not be filled by inference."""
     query = query.strip()
     if not query:
@@ -157,9 +44,8 @@ def search_images(query: str, limit: int = 10) -> dict[str, list[dict[str, objec
 
     phrase = f'"{query.replace(chr(34), chr(34) * 2)}"'
     database_path = _database_path()
-    with closing(sqlite3.connect(database_path)) as connection:
-        connection.row_factory = sqlite3.Row
-        rows = connection.execute(
+    with SharedIndexRead(database_path) as index:
+        rows = index.fetchall(
             """
             SELECT
                 i.id AS image_id,
@@ -182,12 +68,14 @@ def search_images(query: str, limit: int = 10) -> dict[str, list[dict[str, objec
             LIMIT ?
             """,
             (phrase, limit),
-        ).fetchall()
-    matches = [dict(row) for row in rows]
-    for match in matches:
-        _resolve_result_source(database_path, match)
-        match["asset_path"] = str((database_path.parent / str(match["asset_path"])).resolve())
-    return {"matches": matches}
+        )
+        matches = [dict(row) for row in rows]
+        for match in matches:
+            index.resolve_result_source(match)
+            match["asset_path"] = str(
+                (database_path.parent / str(match["asset_path"])).resolve()
+            )
+        return index.complete({"matches": matches})
 
 
 @mcp.tool()
@@ -206,9 +94,8 @@ def search_evidence(
 
     phrase = f'"{query.replace(chr(34), chr(34) * 2)}"'
     database_path = _database_path()
-    with closing(sqlite3.connect(database_path)) as connection:
-        connection.row_factory = sqlite3.Row
-        rows = connection.execute(
+    with SharedIndexRead(database_path) as index:
+        rows = index.fetchall(
             """
             SELECT
                 e.id AS evidence_id,
@@ -240,9 +127,9 @@ def search_evidence(
                 evidence_type,
                 limit,
             ),
-        ).fetchall()
+        )
         if not rows and len(query) < 3:
-            rows = connection.execute(
+            rows = index.fetchall(
                 """
                 SELECT
                     e.id AS evidence_id,
@@ -274,33 +161,29 @@ def search_evidence(
                     evidence_type,
                     limit,
                 ),
-            ).fetchall()
+            )
 
-    evidence = []
-    for row in rows:
-        item = dict(row)
-        _resolve_result_source(database_path, item)
-        item["section_path"] = json.loads(item["section_path"])
-        item["locator"] = json.loads(item["locator"])
-        evidence.append(item)
-    status_summary = _index_status_for_database(database_path)
-    return {
-        "status": (
-            "stale"
-            if status_summary["is_stale"]
-            else "found" if evidence else "not_found"
-        ),
-        "query": query,
-        "match_type": "exact" if evidence else None,
-        "evidence": evidence,
-        "conflicts": _detect_evidence_conflicts(evidence),
-        "limitations": (
-            []
-            if evidence
-            else ["当前索引的文档原文中未找到该查询，且未进行相似玩法联想。"]
-        ),
-        "index_status": status_summary,
-    }
+        evidence = []
+        for row in rows:
+            item = dict(row)
+            index.resolve_result_source(item)
+            item["section_path"] = json.loads(item["section_path"])
+            item["locator"] = json.loads(item["locator"])
+            evidence.append(item)
+        return index.complete(
+            {
+                "status": "found" if evidence else "not_found",
+                "query": query,
+                "match_type": "exact" if evidence else None,
+                "evidence": evidence,
+                "conflicts": _detect_evidence_conflicts(evidence),
+                "limitations": (
+                    []
+                    if evidence
+                    else ["当前索引的文档原文中未找到该查询，且未进行相似玩法联想。"]
+                ),
+            }
+        )
 
 
 def _detect_evidence_conflicts(
@@ -355,9 +238,8 @@ def get_evidence(
         raise ValueError("context_after must be between 0 and 20")
 
     database_path = _database_path()
-    with closing(sqlite3.connect(database_path)) as connection:
-        connection.row_factory = sqlite3.Row
-        row = connection.execute(
+    with SharedIndexRead(database_path) as index:
+        row = index.fetchone(
             """
             SELECT
                 e.id AS evidence_id,
@@ -380,20 +262,22 @@ def get_evidence(
             WHERE e.id = ?
             """,
             (evidence_id,),
-        ).fetchone()
+        )
         if row is None:
-            return {
-                "status": "not_found",
-                "evidence_id": evidence_id,
-                "evidence": None,
-                "context_before": [],
-                "context_after": [],
-            }
+            return index.complete(
+                {
+                    "status": "not_found",
+                    "evidence_id": evidence_id,
+                    "evidence": None,
+                    "context_before": [],
+                    "context_after": [],
+                }
+            )
 
         before_rows: list[sqlite3.Row] = []
         after_rows: list[sqlite3.Row] = []
         if row["source_table"] == "document_blocks":
-            before_rows = connection.execute(
+            before_rows = index.fetchall(
                 """
                 SELECT block_type, text, section_path, locator, ordinal AS block_ordinal
                 FROM document_blocks
@@ -402,9 +286,9 @@ def get_evidence(
                 LIMIT ?
                 """,
                 (row["document_id"], row["block_ordinal"], context_before),
-            ).fetchall()
+            )
             before_rows = list(reversed(before_rows))
-            after_rows = connection.execute(
+            after_rows = index.fetchall(
                 """
                 SELECT block_type, text, section_path, locator, ordinal AS block_ordinal
                 FROM document_blocks
@@ -413,23 +297,24 @@ def get_evidence(
                 LIMIT ?
                 """,
                 (row["document_id"], row["block_ordinal"], context_after),
-            ).fetchall()
+            )
 
-    evidence = dict(row)
-    evidence.pop("document_id")
-    evidence.pop("source_table")
-    evidence.pop("source_record_id")
-    _resolve_result_source(database_path, evidence)
-    evidence["section_path"] = json.loads(evidence["section_path"])
-    evidence["locator"] = json.loads(evidence["locator"])
-    return {
-        "status": "found",
-        "evidence_id": evidence_id,
-        "evidence": evidence,
-        "context_before": [_document_block_result(item) for item in before_rows],
-        "context_after": [_document_block_result(item) for item in after_rows],
-        "index_status": _index_status_for_database(database_path),
-    }
+        evidence = dict(row)
+        evidence.pop("document_id")
+        evidence.pop("source_table")
+        evidence.pop("source_record_id")
+        index.resolve_result_source(evidence)
+        evidence["section_path"] = json.loads(evidence["section_path"])
+        evidence["locator"] = json.loads(evidence["locator"])
+        return index.complete(
+            {
+                "status": "found",
+                "evidence_id": evidence_id,
+                "evidence": evidence,
+                "context_before": [_document_block_result(item) for item in before_rows],
+                "context_after": [_document_block_result(item) for item in after_rows],
+            }
+        )
 
 
 def _document_block_result(row: sqlite3.Row) -> dict[str, object]:
@@ -454,10 +339,9 @@ def search_config_cells(
         raise ValueError("limit must be between 1 and 200")
 
     database_path = _database_path()
-    stored_workbook = _stored_path_selector(database_path, workbook)
-    with closing(sqlite3.connect(database_path)) as connection:
-        connection.row_factory = sqlite3.Row
-        rows = connection.execute(
+    with SharedIndexRead(database_path) as index:
+        stored_workbook = index.stored_path_selector(workbook)
+        rows = index.fetchall(
             """
             SELECT
                 d.path AS source_document,
@@ -496,31 +380,27 @@ def search_config_cells(
                 sheet,
                 limit,
             ),
-        ).fetchall()
+        )
 
-    cells = []
-    for row in rows:
-        cell = dict(row)
-        _resolve_result_source(database_path, cell)
-        cell["workbook"] = Path(cell["source_document"]).name
-        cells.append(cell)
-    status_summary = _index_status_for_database(database_path)
-    return {
-        "status": (
-            "stale"
-            if status_summary["is_stale"]
-            else "found" if cells else "not_found"
-        ),
-        "query": query,
-        "match_type": "exact" if cells else None,
-        "cells": cells,
-        "limitations": (
-            []
-            if cells
-            else ["当前索引的工作簿原文中未找到该单元格事实。"]
-        ),
-        "index_status": status_summary,
-    }
+        cells = []
+        for row in rows:
+            cell = dict(row)
+            index.resolve_result_source(cell)
+            cell["workbook"] = Path(cell["source_document"]).name
+            cells.append(cell)
+        return index.complete(
+            {
+                "status": "found" if cells else "not_found",
+                "query": query,
+                "match_type": "exact" if cells else None,
+                "cells": cells,
+                "limitations": (
+                    []
+                    if cells
+                    else ["当前索引的工作簿原文中未找到该单元格事实。"]
+                ),
+            }
+        )
 
 
 @mcp.tool()
@@ -536,10 +416,9 @@ def get_sheet_range(workbook: str, sheet: str, range: str) -> dict[str, object]:
     )
 
     database_path = _database_path()
-    stored_workbook = _stored_path_selector(database_path, workbook)
-    with closing(sqlite3.connect(database_path)) as connection:
-        connection.row_factory = sqlite3.Row
-        sheets = connection.execute(
+    with SharedIndexRead(database_path) as index:
+        stored_workbook = index.stored_path_selector(workbook)
+        sheets = index.fetchall(
             """
             SELECT ws.id, d.path AS source_document
             FROM workbook_sheets AS ws
@@ -554,30 +433,34 @@ def get_sheet_range(workbook: str, sheet: str, range: str) -> dict[str, object]:
                 f"%/{stored_workbook}",
                 f"%\\{stored_workbook}",
             ),
-        ).fetchall()
+        )
         if not sheets:
-            return {
-                "status": "not_found",
-                "workbook": workbook,
-                "sheet": sheet,
-                "range": normalized_range,
-                "cells": [],
-                "limitations": ["索引中未找到指定工作簿与工作表。"],
-            }
+            return index.complete(
+                {
+                    "status": "not_found",
+                    "workbook": workbook,
+                    "sheet": sheet,
+                    "range": normalized_range,
+                    "cells": [],
+                    "limitations": ["索引中未找到指定工作簿与工作表。"],
+                }
+            )
         if len(sheets) > 1:
-            return {
-                "status": "ambiguous",
-                "workbook": workbook,
-                "sheet": sheet,
-                "range": normalized_range,
-                "cells": [],
-                "candidates": [
-                    str(_resolve_source_path(database_path, item["source_document"]))
-                    for item in sheets
-                ],
-                "limitations": ["存在多个同名工作簿，请使用完整路径。"],
-            }
-        cells = connection.execute(
+            return index.complete(
+                {
+                    "status": "ambiguous",
+                    "workbook": workbook,
+                    "sheet": sheet,
+                    "range": normalized_range,
+                    "cells": [],
+                    "candidates": [
+                        str(index.resolve_source_path(item["source_document"]))
+                        for item in sheets
+                    ],
+                    "limitations": ["存在多个同名工作簿，请使用完整路径。"],
+                }
+            )
+        cells = index.fetchall(
             """
             SELECT
                 cell_reference,
@@ -602,22 +485,22 @@ def get_sheet_range(workbook: str, sheet: str, range: str) -> dict[str, object]:
                 start_column,
                 end_column,
             ),
-        ).fetchall()
+        )
 
-    status_summary = _index_status_for_database(database_path)
-    source_document = str(
-        _resolve_source_path(database_path, sheets[0]["source_document"])
-    )
-    return {
-        "status": "stale" if status_summary["is_stale"] else "found",
-        "source_document": source_document,
-        "workbook": Path(source_document).name,
-        "sheet": sheet,
-        "range": normalized_range,
-        "cells": [dict(cell) for cell in cells],
-        "limitations": [],
-        "index_status": status_summary,
-    }
+        source_document = str(
+            index.resolve_source_path(sheets[0]["source_document"])
+        )
+        return index.complete(
+            {
+                "status": "found",
+                "source_document": source_document,
+                "workbook": Path(source_document).name,
+                "sheet": sheet,
+                "range": normalized_range,
+                "cells": [dict(cell) for cell in cells],
+                "limitations": [],
+            }
+        )
 
 
 def _parse_a1_range(value: str) -> tuple[int, int, int, int, str]:
@@ -652,9 +535,8 @@ def find_feature(name: str) -> dict[str, object]:
         raise ValueError("name must not be empty")
 
     database_path = _database_path()
-    with closing(sqlite3.connect(database_path)) as connection:
-        connection.row_factory = sqlite3.Row
-        canonical_rows = connection.execute(
+    with SharedIndexRead(database_path) as index:
+        canonical_rows = index.fetchall(
             """
             SELECT id, feature_key, canonical_name, source
             FROM catalog_features
@@ -662,8 +544,8 @@ def find_feature(name: str) -> dict[str, object]:
             ORDER BY id
             """,
             (name,),
-        ).fetchall()
-        alias_rows = connection.execute(
+        )
+        alias_rows = index.fetchall(
             """
             SELECT
                 f.id,
@@ -680,66 +562,72 @@ def find_feature(name: str) -> dict[str, object]:
             ORDER BY f.id, a.id
             """,
             (name,),
-        ).fetchall()
+        )
 
-    matches: dict[int, dict[str, object]] = {}
-    for row in alias_rows:
-        matches[row["id"]] = {
-            "match_type": "confirmed_alias",
-            "feature": {
-                "key": row["feature_key"],
-                "canonical_name": row["canonical_name"],
-                "source": row["source"],
-            },
-            "matched_alias": {
-                "name": row["alias"],
-                "source": row["alias_source"],
-                "confirmed_at": row["confirmed_at"],
-                "confirmed_by": row["confirmed_by"],
-            },
-        }
-    for row in canonical_rows:
-        matches[row["id"]] = {
-            "match_type": "canonical",
-            "feature": {
-                "key": row["feature_key"],
-                "canonical_name": row["canonical_name"],
-                "source": row["source"],
-            },
-            "matched_alias": None,
-        }
+        matches: dict[int, dict[str, object]] = {}
+        for row in alias_rows:
+            matches[row["id"]] = {
+                "match_type": "confirmed_alias",
+                "feature": {
+                    "key": row["feature_key"],
+                    "canonical_name": row["canonical_name"],
+                    "source": row["source"],
+                },
+                "matched_alias": {
+                    "name": row["alias"],
+                    "source": row["alias_source"],
+                    "confirmed_at": row["confirmed_at"],
+                    "confirmed_by": row["confirmed_by"],
+                },
+            }
+        for row in canonical_rows:
+            matches[row["id"]] = {
+                "match_type": "canonical",
+                "feature": {
+                    "key": row["feature_key"],
+                    "canonical_name": row["canonical_name"],
+                    "source": row["source"],
+                },
+                "matched_alias": None,
+            }
 
-    if not matches:
-        return {
-            "status": "not_found",
-            "query": name,
-            "match_type": None,
-            "feature": None,
-            "matched_alias": None,
-            "limitations": [
-                "当前人工确认目录中未找到该正式名称或别名，未进行自动联想。"
-            ],
-        }
-    if len(matches) > 1:
-        return {
-            "status": "ambiguous",
-            "query": name,
-            "match_type": "exact_catalog_collision",
-            "feature": None,
-            "matched_alias": None,
-            "candidates": [match["feature"] for match in matches.values()],
-            "limitations": ["该名称在人工目录中对应多个玩法，需要人工消歧。"],
-        }
+        if not matches:
+            return index.complete(
+                {
+                    "status": "not_found",
+                    "query": name,
+                    "match_type": None,
+                    "feature": None,
+                    "matched_alias": None,
+                    "limitations": [
+                        "当前人工确认目录中未找到该正式名称或别名，未进行自动联想。"
+                    ],
+                }
+            )
+        if len(matches) > 1:
+            return index.complete(
+                {
+                    "status": "ambiguous",
+                    "query": name,
+                    "match_type": "exact_catalog_collision",
+                    "feature": None,
+                    "matched_alias": None,
+                    "candidates": [match["feature"] for match in matches.values()],
+                    "limitations": ["该名称在人工目录中对应多个玩法，需要人工消歧。"],
+                }
+            )
 
-    match = next(iter(matches.values()))
-    return {
-        "status": "found",
-        "query": name,
-        "match_type": match["match_type"],
-        "feature": match["feature"],
-        "matched_alias": match["matched_alias"],
-        "limitations": [],
-    }
+        match = next(iter(matches.values()))
+        return index.complete(
+            {
+                "status": "found",
+                "query": name,
+                "match_type": match["match_type"],
+                "feature": match["feature"],
+                "matched_alias": match["matched_alias"],
+                "limitations": [],
+            }
+        )
 
 
 @mcp.tool()
@@ -754,9 +642,8 @@ def get_feature_evidence(
     if not name:
         raise ValueError("name must not be empty")
     database_path = _database_path()
-    with closing(sqlite3.connect(database_path)) as connection:
-        connection.row_factory = sqlite3.Row
-        resolved = connection.execute(
+    with SharedIndexRead(database_path) as index:
+        resolved = index.fetchall(
             """
             SELECT f.id, f.feature_key, f.canonical_name, f.source, 'canonical' AS match_type
             FROM catalog_features AS f
@@ -770,49 +657,55 @@ def get_feature_evidence(
             ORDER BY id
             """,
             (name, name),
-        ).fetchall()
+        )
         unique_features = {row["id"]: row for row in resolved}
         if not unique_features:
-            return {
-                "status": "not_found",
-                "query": name,
-                "resolved_name": None,
-                "feature": None,
-                "documents": [],
-                "configs": [],
-                "images": [],
-                "limitations": [
-                    "当前人工确认目录中未找到该正式名称或别名，未进行自动联想。"
-                ],
-            }
+            return index.complete(
+                {
+                    "status": "not_found",
+                    "query": name,
+                    "resolved_name": None,
+                    "feature": None,
+                    "documents": [],
+                    "configs": [],
+                    "images": [],
+                    "limitations": [
+                        "当前人工确认目录中未找到该正式名称或别名，未进行自动联想。"
+                    ],
+                }
+            )
         if len(unique_features) > 1:
-            return {
-                "status": "ambiguous",
-                "query": name,
-                "resolved_name": None,
-                "feature": None,
-                "documents": [],
-                "configs": [],
-                "images": [],
-                "candidates": [row["canonical_name"] for row in unique_features.values()],
-                "limitations": ["该名称在人工目录中对应多个玩法，需要人工消歧。"],
-            }
+            return index.complete(
+                {
+                    "status": "ambiguous",
+                    "query": name,
+                    "resolved_name": None,
+                    "feature": None,
+                    "documents": [],
+                    "configs": [],
+                    "images": [],
+                    "candidates": [
+                        row["canonical_name"] for row in unique_features.values()
+                    ],
+                    "limitations": ["该名称在人工目录中对应多个玩法，需要人工消歧。"],
+                }
+            )
 
         feature_row = next(iter(unique_features.values()))
         canonical_name = feature_row["canonical_name"]
         confirmed_aliases = [
             row[0]
-            for row in connection.execute(
+            for row in index.fetchall(
                 "SELECT alias FROM catalog_aliases WHERE feature_id = ? ORDER BY id",
                 (feature_row["id"],),
-            ).fetchall()
+            )
         ]
         search_terms = list(dict.fromkeys([canonical_name, *confirmed_aliases]))
         document_rows = []
         config_rows = []
         image_rows = []
         if include_documents:
-            document_rows = connection.execute(
+            document_rows = index.fetchall(
                 """
                 SELECT
                     e.id AS evidence_id,
@@ -835,9 +728,9 @@ def get_feature_evidence(
                 ORDER BY d.path, b.ordinal, e.id
                 """,
                 search_terms,
-            ).fetchall()
+            )
         if include_configs:
-            config_rows = connection.execute(
+            config_rows = index.fetchall(
                 """
                 SELECT
                     d.path AS source_document,
@@ -864,9 +757,9 @@ def get_feature_evidence(
                 ORDER BY d.path, ws.sheet_index, c.row_index, c.column_index
                 """,
                 [term for term in search_terms for _ in range(3)],
-            ).fetchall()
+            )
         if include_images:
-            image_rows = connection.execute(
+            image_rows = index.fetchall(
                 """
                 SELECT
                     i.id AS image_id,
@@ -893,53 +786,54 @@ def get_feature_evidence(
                 ORDER BY d.path, i.id
                 """,
                 [term for term in search_terms for _ in range(3)],
-            ).fetchall()
+            )
 
-    documents = []
-    for row in document_rows:
-        item = dict(row)
-        _resolve_result_source(database_path, item)
-        item["section_path"] = json.loads(item["section_path"])
-        item["locator"] = json.loads(item["locator"])
-        documents.append(item)
-    configs = []
-    for row in config_rows:
-        item = dict(row)
-        _resolve_result_source(database_path, item)
-        configs.append(item)
-    images = []
-    for row in image_rows:
-        item = dict(row)
-        _resolve_result_source(database_path, item)
-        item["asset_path"] = str((database_path.parent / item["asset_path"]).resolve())
-        images.append(item)
-    status_summary = _index_status_for_database(database_path)
-    return {
-        "status": "stale" if status_summary["is_stale"] else "found",
-        "query": name,
-        "resolved_name": canonical_name,
-        "searched_names": search_terms,
-        "match_type": feature_row["match_type"],
-        "feature": {
-            "key": feature_row["feature_key"],
-            "canonical_name": canonical_name,
-            "source": feature_row["source"],
-        },
-        "documents": documents,
-        "configs": configs,
-        "images": images,
-        "limitations": [],
-        "index_status": status_summary,
-    }
+        documents = []
+        for row in document_rows:
+            item = dict(row)
+            index.resolve_result_source(item)
+            item["section_path"] = json.loads(item["section_path"])
+            item["locator"] = json.loads(item["locator"])
+            documents.append(item)
+        configs = []
+        for row in config_rows:
+            item = dict(row)
+            index.resolve_result_source(item)
+            configs.append(item)
+        images = []
+        for row in image_rows:
+            item = dict(row)
+            index.resolve_result_source(item)
+            item["asset_path"] = str(
+                (database_path.parent / item["asset_path"]).resolve()
+            )
+            images.append(item)
+        return index.complete(
+            {
+                "status": "found",
+                "query": name,
+                "resolved_name": canonical_name,
+                "searched_names": search_terms,
+                "match_type": feature_row["match_type"],
+                "feature": {
+                    "key": feature_row["feature_key"],
+                    "canonical_name": canonical_name,
+                    "source": feature_row["source"],
+                },
+                "documents": documents,
+                "configs": configs,
+                "images": images,
+                "limitations": [],
+            }
+        )
 
 
 @mcp.tool()
 def get_image_context(image_id: int) -> dict[str, object]:
     """Return traceable source evidence, nearby text, and OCR for an indexed image."""
     database_path = _database_path()
-    with closing(sqlite3.connect(database_path)) as connection:
-        connection.row_factory = sqlite3.Row
-        row = connection.execute(
+    with SharedIndexRead(database_path) as index:
+        row = index.fetchone(
             """
             SELECT
                 d.path AS source_document,
@@ -957,13 +851,21 @@ def get_image_context(image_id: int) -> dict[str, object]:
             WHERE i.id = ?
             """,
             (image_id,),
-        ).fetchone()
-    if row is None:
-        raise ValueError(f"Image {image_id} was not found in the index")
-    result = dict(row)
-    _resolve_result_source(database_path, result)
-    result["asset_path"] = str((database_path.parent / str(result["asset_path"])).resolve())
-    return result
+        )
+        if row is None:
+            return index.complete(
+                {
+                    "status": "not_found",
+                    "image_id": image_id,
+                    "limitations": ["索引中未找到指定图片。"],
+                }
+            )
+        result = dict(row)
+        index.resolve_result_source(result)
+        result["asset_path"] = str(
+            (database_path.parent / str(result["asset_path"])).resolve()
+        )
+        return index.complete(result)
 
 
 @mcp.tool()

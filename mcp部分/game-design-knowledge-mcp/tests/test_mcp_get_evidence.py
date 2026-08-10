@@ -47,6 +47,9 @@ class GetEvidenceMcpTests(unittest.IsolatedAsyncioTestCase):
                             "context_after": 1,
                         },
                     )
+                    missing = await client.call_tool(
+                        "get_evidence", {"evidence_id": 999999}
+                    )
             finally:
                 if previous_index is None:
                     os.environ.pop("GAME_DESIGN_INDEX_DIR", None)
@@ -60,6 +63,11 @@ class GetEvidenceMcpTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(response["context_before"]), 1)
             self.assertEqual(response["context_before"][0]["text"], "幸运转盘")
             self.assertEqual(response["context_after"], [])
+            self.assertFalse(response["index_status"]["is_stale"])
+            self.assertEqual(missing.structured_content["status"], "not_found")
+            self.assertFalse(
+                missing.structured_content["index_status"]["is_stale"]
+            )
 
     @staticmethod
     def _index(source: Path, output: Path) -> None:

@@ -69,6 +69,9 @@ class FindFeatureMcpTests(unittest.IsolatedAsyncioTestCase):
                     missing_result = await client.call_tool(
                         "find_feature", {"name": "风车玩法"}
                     )
+                    missing_evidence_result = await client.call_tool(
+                        "get_feature_evidence", {"name": "风车玩法"}
+                    )
                     evidence_result = await client.call_tool(
                         "get_feature_evidence", {"name": "大转盘"}
                     )
@@ -105,6 +108,13 @@ class FindFeatureMcpTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(
                 missing_response["limitations"],
                 ["当前人工确认目录中未找到该正式名称或别名，未进行自动联想。"],
+            )
+            self.assertFalse(missing_response["index_status"]["is_stale"])
+            self.assertEqual(
+                missing_evidence_result.structured_content["status"], "not_found"
+            )
+            self.assertFalse(
+                missing_evidence_result.structured_content["index_status"]["is_stale"]
             )
             self.assertEqual(catalog_path.read_text(encoding="utf-8"), original_catalog)
 
@@ -192,7 +202,8 @@ class FindFeatureMcpTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(stale_status.structured_content["is_stale"], True)
             self.assertNotEqual(failed.returncode, 0)
             self.assertIn("confirmation objects", failed.stderr)
-            self.assertEqual(preserved.structured_content["status"], "found")
+            self.assertEqual(preserved.structured_content["status"], "stale")
+            self.assertTrue(preserved.structured_content["index_status"]["is_stale"])
             self.assertEqual(
                 preserved.structured_content["feature"]["canonical_name"], "幸运转盘"
             )

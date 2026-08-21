@@ -1,6 +1,6 @@
 # 新电脑环境搭建指南
 
-本文面向 Windows 环境，用于在另一台电脑拉取仓库后，从零搭建 `game-design-knowledge-mcp`。
+本文面向 Windows 环境，说明如何在另一台电脑部署、配置和验证 `game-design-knowledge-mcp`。前置依赖满足后，优先使用一键部署；需要排障或了解各步骤时再走手动流程。
 
 ## 1. 前置依赖
 
@@ -38,7 +38,9 @@ cd "<仓库路径>\mcp部分\game-design-knowledge-mcp"
 
 后续命令均在 `game-design-knowledge-mcp` 目录执行。
 
-## Windows 一键部署
+## 3. 选择部署方式
+
+### 3.1 一键部署
 
 前置依赖满足后，可以直接运行：
 
@@ -62,7 +64,7 @@ cd "<仓库路径>\mcp部分\game-design-knowledge-mcp"
 
 脚本不会安装 Python、uv、Git 或 Tesseract 等系统软件；缺少前置依赖时会明确停止。
 
-## 3. 创建项目环境
+### 3.2 手动创建项目环境
 
 ```powershell
 uv sync --locked
@@ -82,7 +84,7 @@ uv sync --locked
 uv run python -c "import importlib.metadata; print(importlib.metadata.version('mcp'))"
 ```
 
-## 4. 运行测试
+### 3.3 手动运行测试
 
 ```powershell
 uv run python -m unittest discover -s tests -v
@@ -90,7 +92,7 @@ uv run python -m unittest discover -s tests -v
 
 当前版本的全部测试都应通过。任何测试失败时先停止，不要继续配置 MCP。
 
-## 5. 使用或重建共享索引
+## 4. 使用或重建共享索引
 
 仓库已经包含以下共享索引，普通使用者拉取后无需执行建库命令：
 
@@ -113,7 +115,7 @@ uv run game-design-knowledge index `
   --output .index/knowledge
 ```
 
-固定预期：
+当前仓库示例语料的预期值如下。示例语料变化后，需要同步更新这些数值：
 
 - `documents_indexed` 为 6。
 - `images_indexed` 为 13。
@@ -124,7 +126,7 @@ OCR统计取决于本机是否安装 Tesseract。未安装时，13 张图片应�
 
 索引命令使用 staging 构建：全部成功后才替换正式索引；失败不会覆盖已有可用索引。
 
-## 6. 索引自己的策划资料
+## 5. 索引自己的策划资料
 
 可以把可提交资料放入 `docs/` 对应分类，也可以直接指定仓库外的资料目录：
 
@@ -136,7 +138,7 @@ uv run game-design-knowledge index `
 
 当前正式版处理 DOCX 标题、段落、列表、表格与图片锚点，也处理 XLSX 单元格、公式、样式、合并范围与图片锚点。CSV、Markdown、PDF、PPTX 目前不解析。
 
-## 7. 配置 MCP 客户端
+## 6. 配置 MCP 客户端
 
 先取得三条本机绝对路径：
 
@@ -169,16 +171,16 @@ Resolve-Path .
 - `GAME_DESIGN_PROJECT_ROOT` 指向本 MCP 项目根目录，导入工具只会写入该目录下的固定资料目录和共享索引。
 - 修改 MCP 配置后需要重启 AI 客户端。
 
-## 7.1 让第三方 AI 分类文件并生成 SQLite
+### 6.1 让第三方 AI 分类文件并生成 SQLite
 
-第三方 AI 只要能通过 MCP Server 读取待导入文件的本机绝对路径，就可以完成分类和建库。推荐直接告诉 AI：
+第三方 AI 能通过 MCP Server 读取待导入文件的本机绝对路径时，可以完成分类和建库。可以直接告诉 AI：
 
 ```text
 请把这些文件作为正式策划资料导入。先给我展示移动/复制计划，
 我确认后再执行，并在完成后验证索引。
 ```
 
-AI 必须按以下顺序操作：
+AI 必须按 [`import-policy.md`](import-policy.md) 执行。主流程是：
 
 1. 调用 `plan_document_import`：
    - `source_paths`：一个或多个本机 DOCX/XLSX 绝对路径。
@@ -191,7 +193,7 @@ AI 必须按以下顺序操作：
 4. 工具把文件放到对应 `docx/` 或 `xlsx/` 目录，随后原子重建 `.index/knowledge/knowledge.sqlite` 和图片资产。
 5. 检查返回的 `index_status.is_stale` 必须为 `false`，再报告完成。
 
-安全边界：
+导入边界：
 
 - 只接受 DOCX/XLSX，最多一次 100 个文件。
 - 拒绝符号链接、`.git/`、`.venv/`、`.index/` 中的输入文件。
@@ -204,7 +206,7 @@ AI 必须按以下顺序操作：
 
 导入完成后应将工具返回的 `git_paths_to_commit` 纳入同一个提交，使其他电脑拉取后无需再次建库。
 
-## 8. 配置严格文档证据规则
+## 7. 配置严格文档证据规则
 
 MCP Server 已通过运行时 instructions 提供严格证据政策。为了避免客户端忽略或弱化规则，还应把以下模板复制到实际游戏项目的 `AGENTS.md` 或平台永久 Rules：
 
@@ -212,16 +214,11 @@ MCP Server 已通过运行时 instructions 提供严格证据政策。为了避�
 examples/client-rules/AGENTS.example.md
 ```
 
-完整政策：
-
-```text
-docs/evidence-policy.md
-docs/import-policy.md
-```
+完整政策见 [`evidence-policy.md`](evidence-policy.md) 和 [`import-policy.md`](import-policy.md)。
 
 核心约束是：只使用文档证据；未找到时明确回答未找到；禁止自动联想玩法、猜测设计意图或创建别名。
 
-## 9. 验证 MCP
+## 8. 验证 MCP
 
 重启客户端后调用：
 
@@ -247,9 +244,9 @@ search_config_cells("糖果起点")
 search_evidence("大风车")
 ```
 
-前者应返回带出处的图片；后者在当前示例文档中不存在，应返回空结果，不得自动联想到其他玩法。
+`search_images("文档信息", 10)` 应返回带出处的图片。`search_evidence("大风车")` 在当前示例文档中应返回空结果，不得自动联想到其他玩法。
 
-## 10. 可选 OCR
+## 9. 可选 OCR
 
 检查系统是否已有 Tesseract：
 
@@ -271,24 +268,30 @@ $env:GAME_DESIGN_OCR_LANG = "chi_sim+eng"
 
 需要确保对应语言数据已经由 Tesseract 安装。OCR不可用或失败时，图片仍会提取和建立锚点，但不会产生 OCR 文本。
 
-## 11. 更新流程
+## 10. 更新流程
 
-代码更新后：
+只更新代码时：
 
 ```powershell
 git pull
 uv sync --locked
 uv run python -m unittest discover -s tests -v
+uv run python tools/smoke_stdio.py .index/knowledge
+```
+
+原始资料或人工目录修改后，由一名维护者重建共享索引：
+
+```powershell
 uv run game-design-knowledge index . --output .index/knowledge
 uv run python tools/smoke_stdio.py .index/knowledge
 git add .index/knowledge
 ```
 
-原始资料修改后，由一名维护者重新运行相同索引命令并把原文与索引放在同一个提交中。未变化文件按 SHA 复用，变化文件在 staging 中替换，删除文件同步清理；全部成功后才发布。其他成员拉取该提交即可复用。也可以先通过 `index_status()` 检查 `is_stale`。
+未变化文件按 SHA 复用，变化文件在 staging 中替换，删除文件同步清理；全部成功后才发布。原文与索引必须放在同一个提交中。其他成员拉取该提交即可复用，也可以先通过 `index_status()` 检查 `is_stale`。
 
 人工确认的玩法与别名写入 `knowledge/catalog.json`。别名必须是包含 `name`、`confirmed_at`、`confirmed_by` 的对象；MCP 不会自动添加外号。
 
-## 12. 常见问题
+## 11. 常见问题
 
 ### 看不到 SQLite
 
@@ -308,19 +311,19 @@ uv sync --locked --verbose
 
 成功后再使用 `.venv` 或 `uv run`，不要依赖系统 Python 中的包。
 
-### OCR全部是 `unavailable`
+### OCR 全部是 `unavailable`
 
-Tesseract不在 `PATH` 中。这不影响图片提取、标题搜索和位置查询。
+Tesseract 不在 `PATH` 中。这不影响图片提取、标题搜索和位置查询。
 
 ### `index_status()` 返回 `is_stale: true`
 
 至少一份源文档在索引后被修改、移动或删除。重新运行建立索引的命令。
 
-### 查询外号没有结果
+### 查询别名没有结果
 
-这是严格证据模式的预期行为。只有文档明确记载或用户明确确认的别名才允许使用，AI不会自动联想。
+这是严格证据模式的预期行为。只有文档明确记载或用户明确确认的别名才允许使用，AI 不会自动联想。
 
-## 13. 提交边界
+## 12. 提交边界
 
 以下内容只属于本机：
 

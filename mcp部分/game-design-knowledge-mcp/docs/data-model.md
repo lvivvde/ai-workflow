@@ -1,8 +1,8 @@
-# SQLite数据模型
+# SQLite 数据模型
 
-SQLite是可删除、可重建的派生索引。正式 `.index/knowledge` 会随项目提交，供团队成员直接复用；人工确认的玩法和别名仍不以SQLite作为唯一真源。
+SQLite 是可删除、可重建的派生索引。正式 `.index/knowledge` 会随项目提交，供团队成员直接复用；人工确认的玩法和别名仍不以 SQLite 作为唯一真源。
 
-## Schema版本
+## Schema 版本
 
 ```sql
 PRAGMA user_version = 2;
@@ -30,7 +30,7 @@ status
 
 ## document_blocks
 
-保存DOCX正文的有序结构。
+保存 DOCX 正文的有序结构。
 
 ```text
 id
@@ -57,7 +57,7 @@ table_row
 table_cell
 ```
 
-`section_path`保存从顶层标题到当前块的路径。`locator`保存稳定、可序列化的JSON定位信息。
+`section_path` 保存从顶层标题到当前块的路径。`locator` 保存稳定、可序列化的 JSON 定位信息。
 
 ## workbook_sheets
 
@@ -72,7 +72,7 @@ used_range
 
 ## sheet_cells
 
-保存XLSX原始单元格事实，不默认解释表头语义。
+保存 XLSX 原始单元格事实，不默认解释表头语义。
 
 ```text
 id
@@ -88,7 +88,7 @@ style_id
 merged_range
 ```
 
-公式与缓存值分开保存。无法可靠解释的日期或格式化值保留原始值和style id，不自行推断含义。
+公式与缓存值分开保存。无法可靠解释的日期或格式化值保留原始值和 style ID，不自行推断含义。
 
 ## images
 
@@ -111,7 +111,7 @@ ocr_text
 
 ## evidence
 
-为MCP提供统一查询视图。
+为 MCP 提供统一查询视图。
 
 ```text
 id
@@ -134,7 +134,7 @@ image_ocr
 confirmed_catalog
 ```
 
-`authority`只描述来源，不自动决定冲突中的正确版本。
+`authority` 只描述来源，不自动决定冲突中的正确版本。
 
 ## catalog_features
 
@@ -158,7 +158,7 @@ confirmed_at
 confirmed_by
 ```
 
-只有确认目录中的记录可以进入该表。
+只有人工确认目录中的记录可以进入该表。
 
 ## FTS5
 
@@ -175,7 +175,7 @@ evidence_fts
 tokenize='trigram'
 ```
 
-所有FTS表都保存对应记录ID作为 `UNINDEXED` 字段，查询结果必须回到源表取得完整定位。
+所有 FTS 表都把对应记录 ID 保存为 `UNINDEXED` 字段。查询结果必须回到源表取得完整定位。
 
 ## 索引与约束
 
@@ -184,19 +184,19 @@ tokenize='trigram'
 - `(sheet_id, cell_reference)`唯一。
 - `feature_key`唯一。
 - `(feature_id, alias)`唯一。
-- 所有MCP查询使用参数化SQL。
+- 所有 MCP 查询使用参数化 SQL。
 - 删除文档时级联删除对应块、工作表、单元格、证据和图片引用。
 - 共享图片资产只有在无引用时才能清理。
 
 ## 发布与增量更新
 
-完整构建继续写入同级staging目录并原子发布。
+完整构建写入同级 staging 目录并原子发布。
 
 增量更新以 `source_sha256` 为边界：
 
 - 未变化：复用旧记录。
 - 已变化：在单个事务中替换该文档全部派生记录。
 - 已删除：删除文档及关联证据。
-- catalog变化：只刷新catalog相关表。
+- catalog 变化：只刷新 catalog 相关表。
 
 增量更新不得在失败后留下新旧记录混合状态。

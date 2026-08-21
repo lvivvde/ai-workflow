@@ -1,0 +1,6 @@
+interface:
+  display_name: "Clear Talk"
+  short_description: "去掉 AI 套话，让技术报告、代码分析和工程结论更清楚"
+  default_prompt: "Use $clear-talk to rewrite this technical material in clear, natural, evidence-backed language."
+policy:
+  allow_implicit_invocation: false

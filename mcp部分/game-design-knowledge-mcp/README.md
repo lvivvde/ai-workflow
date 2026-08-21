@@ -1,13 +1,16 @@
 # game-design-knowledge-mcp
 
-面向游戏策划资料的本地知识索引与 MCP 查询服务。
+面向游戏策划资料的本地知识索引与 MCP 查询服务。它把 DOCX、XLSX 和其中的图片转换为可搜索、可定位的 SQLite 派生索引；原始文件始终是事实真源。
 
-## 定位
+## 使用边界
 
-- DOCX、XLSX、CSV、Markdown 等原始文件始终是唯一真源。
-- SQLite 是可删除、可重建的派生索引，不承载人工维护的数据；正式共享索引可以随项目提交。
-- AI 先查询索引，再按命中位置读取少量原文，并在回答中返回文件、章节、工作表、行号或单元格等出处。
-- 优先支持精确 ID、字段和全文检索；语义向量检索作为后续增强，不替代精确查询。
+- 当前正式版解析 DOCX 和 XLSX。CSV、Markdown、PDF、PPTX 仅作为资料分类目录保留。
+- SQLite 可以删除并重建，不承载需要人工维护的唯一数据。团队可以提交 `.index/knowledge/`，让其他成员直接复用共享索引。
+- AI 先查索引，再按命中位置读取少量原文；回答必须返回文件、章节、工作表、行号或单元格等出处。
+- 查询优先使用精确 ID、字段和全文搜索。语义检索不能替代明确证据。
+- Tesseract OCR 是可选依赖。缺失时仍会提取图片和记录锚点，但不会生成 OCR 文本。
+
+完整证据规则见 [`docs/evidence-policy.md`](docs/evidence-policy.md)，写入和回滚规则见 [`docs/import-policy.md`](docs/import-policy.md)。
 
 ## 目录结构
 
@@ -21,38 +24,24 @@ game-design-knowledge-mcp/
 └── examples/             # 项目内部共享资料和示例配置
 ```
 
-`docs/` 和 `examples/` 都属于当前项目内部资料，可以随私有项目仓库提交，无需为了本工作流额外脱敏。`.index/knowledge/` 是团队共享的预构建索引：一名成员在资料变化后重建并提交，其他成员拉取后即可直接查询，不需要重复建库。资料与索引不得脱离项目访问边界传播。
-
-## 第一阶段目标
-
-1. 扫描用户指定的资料目录，不修改原文件。
-2. 使用文件哈希进行增量更新和过期检测。
-3. 将 DOCX 按章节、段落、列表和表格索引。
-4. 将 XLSX 按工作表、表头、配置行和单元格索引。
-5. 使用 SQLite FTS5 提供中文全文搜索和结果排序。
-6. 提供 MCP 查询接口，返回稳定的原文定位信息。
+`docs/`、`examples/` 和 `.index/knowledge/` 服从当前项目的访问权限。资料变化后由一名维护者重建并提交共享索引，其他成员拉取后可以直接查询。资料与索引不得脱离项目访问边界传播。
 
 ## 当前功能
 
-当前正式版已经实现：
-
-- 从 DOCX 提取内嵌图片，并记录所属标题、段落序号和段落文字。
-- 从 XLSX 提取 drawing 图片，并记录工作表、锚点单元格和单元格文字。
-- 图片按 SHA256 去重保存，SQLite 只记录相对资产路径和结构化出处。
-- 使用 SQLite FTS5 trigram 搜索标题、邻近文字和 OCR 文本。
-- 自动检测 Tesseract；不可用或失败时明确记录状态，不生成伪造文字。
-- 使用 staging 构建并在成功后发布，失败不会覆盖已有索引。
-- 提供严格证据查询工具，以及需要“先预览、再确认”的受控文档导入和共享索引重建工具。
-- 索引 DOCX 标题、段落、列表和表格单元格，以及 XLSX 原始值、公式、样式和合并范围。
-- 使用统一证据模型查询正文、配置和图片，并返回 `found`、`not_found`、`ambiguous` 或 `stale`。
-- 只解析人工玩法目录中的正式名和已确认别名，不自动联想或写入外号。
-- 使用文件 SHA 增量复用未变化文档，在 staging 中替换变化记录并清理已删除文档。
+- 索引 DOCX 标题、段落、列表、表格单元格和图片锚点。
+- 索引 XLSX 原始值、公式、样式、合并范围和图片锚点。
+- 使用 SQLite FTS5 trigram 查询正文、配置、图片邻近文字和 OCR 文本。
+- 通过文件 SHA 增量复用未变化文档，并检测过期或已删除的来源。
+- 在 staging 中构建，成功后才发布；失败不会覆盖已有索引。
+- 返回 `found`、`not_found`、`ambiguous` 或 `stale`，并附带结构化出处。
+- 只识别人工目录中的正式名和已确认别名，不自动创建或联想外号。
+- 导入和重建共享索引必须先预览、再由用户明确确认。
 
 正式规格见 [`docs/spec.md`](docs/spec.md)，数据模型见 [`docs/data-model.md`](docs/data-model.md)。
 
 ## 安装与验证
 
-另一台电脑从零搭建请先阅读 [`docs/setup.md`](docs/setup.md)。
+另一台电脑从零搭建、重建共享索引或排查环境问题时，使用 [`docs/setup.md`](docs/setup.md)。
 
 ```powershell
 uv sync --locked
@@ -83,13 +72,13 @@ uv run python tools/benchmark.py --documents 1000
 uv run python tools/smoke_stdio.py .index/knowledge
 ```
 
-## 建立示例索引
+## 索引资料
 
 ```powershell
 uv run game-design-knowledge index . --output .index/knowledge
 ```
 
-`.index/knowledge` 会提交到项目仓库。源文档路径以相对索引目录的形式保存；另一台电脑即使仓库绝对路径和文件修改时间不同，只要内容 SHA256 一致，索引仍可直接使用。资料变化后由维护者重建并把 SQLite 与 `assets/` 一起提交。
+`.index/knowledge` 可以随项目提交。源文档路径尽量保存为相对路径；换电脑或移动仓库后，只要内容 SHA256 不变，索引仍可复用。资料变化后，由维护者重建并把原文、SQLite 和 `assets/` 放在同一个 Git 提交中。
 
 ## 启动 MCP Server
 
@@ -119,33 +108,28 @@ MCP 客户端配置示例：
 
 ## MCP 工具
 
-- `search_images(query, limit=10)`：搜索图片标题、邻近文字和 OCR 文本。
-- `get_image_context(image_id)`：返回图片文件、原文档、DOCX 标题/段落或 XLSX 工作表/单元格。
-- `index_status()`：返回文档数、图片数、OCR 统计和源文件过期状态。
-- `search_evidence(query, document_type=None, evidence_type=None, limit=20)`：查询 DOCX/XLSX 统一原文证据。
-- `get_evidence(evidence_id, context_before=1, context_after=1)`：读取证据及同文档相邻块。
-- `search_config_cells(query, workbook=None, sheet=None, limit=50)`：查询 XLSX 原始值、显示文字和公式。
-- `get_sheet_range(workbook, sheet, range)`：读取指定工作表 A1 范围。
-- `find_feature(name)`：只解析正式名和人工确认别名。
-- `get_feature_evidence(name, ...)`：按正式名聚合正文、配置和图片证据。
-- `plan_document_import(source_paths, destination="docs", operation="copy")`：只读预览 DOCX/XLSX 的源路径、目标路径、SHA256 和操作，不修改文件。
-- `import_documents(..., plan_token, confirmed=true)`：按已确认计划复制或移动文件，并原子重建共享 SQLite；失败时恢复文件并保留旧索引。
-- `rebuild_shared_index(confirmed=false)`：预览或明确确认后重建共享索引。
+| 用途 | 工具 |
+|---|---|
+| 查询图片 | `search_images`、`get_image_context` |
+| 查询正文证据 | `search_evidence`、`get_evidence` |
+| 查询配置 | `search_config_cells`、`get_sheet_range` |
+| 查询玩法 | `find_feature`、`get_feature_evidence` |
+| 检查索引 | `index_status` |
+| 受控导入 | `plan_document_import`、`import_documents` |
+| 重建共享索引 | `rebuild_shared_index` |
 
 所有 shared-index 读取工具都会返回同一次读取对应的 `index_status`；只要源文档或人工目录已过期，顶层 `status` 就统一为 `stale`。
 
 ## 第三方 AI 导入资料
 
-第三方 AI 只连接本 MCP 也可以完成分类和建库，但必须遵循两步确认：
+导入 DOCX/XLSX 必须经过以下流程：
 
-1. 正式资料默认使用 `destination="docs"`；只有用户明确说“测试/示例资料”时才使用 `destination="examples"`。
-2. 默认 `operation="copy"`，只有用户明确要求移动原文件时才使用 `move`。
-3. 先调用 `plan_document_import`，向用户展示每个源文件、目标文件和操作。
-4. 用户明确确认后，使用完全相同的参数、返回的 `plan_token` 和 `confirmed=true` 调用 `import_documents`。
-5. 工具只接受 DOCX/XLSX，禁止覆盖同名文件；建库失败会回滚文件操作。
-6. 完成后将原始资料、`.index/knowledge/knowledge.sqlite` 和 `.index/knowledge/assets/` 放在同一个 Git 提交中。
+1. 调用 `plan_document_import`，只读预览源路径、目标路径、操作和 SHA256。
+2. 向用户展示计划并等待明确确认。
+3. 使用相同参数、返回的 `plan_token` 和 `confirmed=true` 调用 `import_documents`。
+4. 验证 `index_status.is_stale` 为 `false`，再报告结果和待提交路径。
 
-该流程只处理文件分类与事实索引，不会从文档名称或内容猜测、创建玩法别名。
+默认复制到正式资料目录。只有用户明确指定测试资料时才使用 `examples`，明确要求移动时才使用 `move`。工具禁止覆盖同名文件；导入或建库失败时会恢复本次文件操作并保留旧索引。
 
 ## 人工玩法目录
 
@@ -153,9 +137,13 @@ MCP 客户端配置示例：
 
 ## 文档证据政策
 
-本 MCP 使用严格的“只按文档事实回答”模式：禁止根据模型常识、名称相似度或行业经验推断项目玩法；没有证据时必须明确返回未找到；设计意图必须有文档明示依据；别名只有文档记载或用户明确确认后才能使用。
+- 没有证据时明确返回未找到，不映射到相似玩法。
+- 文档只记录部分规则时，同时说明未记录内容。
+- 多份证据冲突时列出各自出处，不替用户选择正确版本。
+- 只有文档明确说明时才能陈述设计意图。
+- 别名必须由文档或用户明确确认。
 
-完整证据规则见 [`docs/evidence-policy.md`](docs/evidence-policy.md)，文件写入规则见 [`docs/import-policy.md`](docs/import-policy.md)。实际游戏项目还应将 [`examples/client-rules/AGENTS.example.md`](examples/client-rules/AGENTS.example.md) 的内容复制到项目 `AGENTS.md` 或平台永久 Rules 中，以加固客户端行为。
+实际游戏项目还应将 [`examples/client-rules/AGENTS.example.md`](examples/client-rules/AGENTS.example.md) 复制到项目 `AGENTS.md` 或平台永久 Rules 中。
 
 ## OCR
 
@@ -167,6 +155,11 @@ $env:GAME_DESIGN_OCR_LANG = "chi_sim+eng"
 
 如果没有安装 Tesseract，文档和图片仍会正常建立索引，图片记录为 `ocr_status=unavailable`。本项目不会自动安装系统级 OCR 软件。
 
-## 与 Skill 的边界
+## 文档导航
 
-索引、解析和查询能力放在本 MCP 项目中。待 MCP 接口稳定后，可以在 `skill部分/` 增加一个轻量 Skill，只负责约束 AI 的查询顺序、证据核对、冲突报告和回答格式。
+- [`docs/setup.md`](docs/setup.md)：新电脑部署、客户端配置、验证和更新流程。
+- [`docs/spec.md`](docs/spec.md)：支持范围、公开接口、查询结果和验收标准。
+- [`docs/data-model.md`](docs/data-model.md)：SQLite Schema、约束和增量更新规则。
+- [`docs/evidence-policy.md`](docs/evidence-policy.md)：查询时的事实与证据边界。
+- [`docs/import-policy.md`](docs/import-policy.md)：导入、确认、回滚和提交边界。
+- [`docs/catalog.md`](docs/catalog.md)：正式玩法与别名的人工确认格式。

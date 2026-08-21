@@ -1,26 +1,22 @@
 # simple-game-client
 
-> Status: 🚧 placeholder — design stage, no code yet.
-> A self-built MCP project (not a third-party index).
+> Status: design stage; no implementation yet.
+> Scope: internal, project-specific MCP server.
 
 ## Overview
 
-A minimal game client exposed as an MCP server, letting AI agents connect to, inspect, and interact with a game session through standardized MCP tools.
+A minimal game-session client exposed through MCP tools. It keeps the network and session behavior required to connect an AI agent to a game server, without rendering, assets, input handling, or UI.
 
 ## Design Rationale
 
-A real game client is **heavy** — rendering, assets, input, UI — and holds a **persistent connection** to the server. This project strips all of that away: the MCP server itself *simulates* a client connection, keeping only the network/session layer.
+The MCP layer is a thin adapter. The project-specific work is reproducing the game's network stack from authorized client and server source:
 
-Because there is no official protocol SDK, everything below the MCP interface must be implemented by hand, derived from the game's own client (and server) source code:
+- packet framing, opcodes, and message flow;
+- connection, login, heartbeat, reconnect, and disconnect behavior;
+- encryption, decryption, compression, and decompression where required;
+- gateway discovery, server selection, ports, and zone routing.
 
-1. **Protocol parsing is reverse-engineered from source.** Packet formats, opcodes, and message flows are read from the game client's source code. Every packet sent and parsed by this MCP follows that implementation — there is no shortcut.
-2. **Connection & heartbeat are self-maintained.** The MCP server owns the socket lifecycle: connect, login/handshake, keep-alive heartbeat at the interval the real client uses, reconnect with backoff, and graceful disconnect.
-3. **Crypto layer is self-implemented.** Packets may be encrypted/decrypted and compressed/decompressed exactly as the real client does. The same algorithms, keys, and packet framing must be reproduced from source.
-4. **Server endpoints are self-managed.** Gateway/login/server-list flows, port discovery, and zone routing are implemented manually based on the client/server source.
-
-In short: **the MCP layer is thin; the hard part is faithfully reproducing the client's network stack.**
-
-> Design decision: the **MCP transport layer uses the official SDK** (`@modelcontextprotocol/sdk` or the Python equivalent). "Hand-written" above refers to the *game* protocol/crypto/session layers only. Compliance & distribution checklist: see [MCP-COMPLIANCE.md](./MCP-COMPLIANCE.md).
+The MCP protocol layer must use an official SDK (`@modelcontextprotocol/sdk` or the Python equivalent). “Hand-written” in this document refers only to the game protocol, crypto, and session layers. See [MCP-COMPLIANCE.md](./MCP-COMPLIANCE.md) for validation and internal handoff requirements.
 
 ## Architecture (draft)
 
@@ -61,9 +57,9 @@ Game Server
 5. Scaffold MCP server and expose tools
 6. End-to-end test with an AI agent
 
-## Notes
+## Constraints and recorded findings
 
-- **Prior-art check (2026-08)**: no existing MCP project does protocol-level game-client simulation. awesome-mcp-servers' Gaming category (~30 entries) covers game-data APIs, engine bridges (Unity/Godot), emulator control, and rules references — none connect to a live game server over a custom protocol with self-maintained heartbeat/crypto.
-- **Scope**: project-specific by design. Game protocols differ per title and are tightly coupled to each game's client source — each game needs its own implementation. Not for public release; internal team usage only (handoff standards in [MCP-COMPLIANCE.md](./MCP-COMPLIANCE.md)).
+- **Prior-art check (2026-08)**: this repository's review of the awesome-mcp-servers Gaming category did not find an MCP server that connects to a live game server over a custom protocol while maintaining heartbeat and crypto. The review found game-data APIs, engine bridges, emulator control, and rules references instead.
+- **Scope**: game protocols differ by title and client version, so each title needs its own implementation. This project is for internal team use and is not intended for public release. Handoff requirements are recorded in [MCP-COMPLIANCE.md](./MCP-COMPLIANCE.md).
 
 _(design decisions, protocol docs, packet references, and source-code pointers go here)_

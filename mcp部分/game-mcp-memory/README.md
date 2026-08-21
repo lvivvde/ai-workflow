@@ -1,8 +1,6 @@
 # game-mcp-memory
 
-`simple-game-client` 的可选长期记忆 Sidecar。它将 Mem0 OSS 作为 Python
-Library 嵌入本地 HTTP 服务，记忆数据存入本机 Qdrant 和 SQLite；模型调用通过
-OpenAI-compatible API 完成。
+`simple-game-client` 的可选长期记忆 Sidecar。它把 Mem0 OSS 作为 Python 库嵌入本地 HTTP 服务，记忆数据保存在本机 Qdrant 和 SQLite 中，模型调用通过 OpenAI-compatible API 完成。
 
 ## 当前范围
 
@@ -21,7 +19,7 @@ OpenAI-compatible API 完成。
 - POC 仅使用模拟玩家和测试服数据。
 - Memory 不可用时，游戏 MCP 应继续工作，不能阻断或自动重放游戏指令。
 
-## 启动
+## 快速启动
 
 1. 复制配置模板：
 
@@ -29,7 +27,7 @@ OpenAI-compatible API 完成。
    Copy-Item .env.example .env
    ```
 
-2. 在本地 `.env` 填写 `MEMORY_API_KEY`。
+2. 在本地 `.env` 中填写 `MEMORY_API_KEY`。只使用公司批准的 API Key。
 
 3. 安装锁定依赖并运行离线验证：
 
@@ -97,7 +95,7 @@ Invoke-RestMethod `
 - 执行命令后调用 `/command-results`。
 - Sidecar 超时或不可用时返回空记忆，不影响游戏连接与指令执行。
 
-## 公司电脑
+## 在另一台公司电脑部署
 
 ```powershell
 git pull
@@ -108,4 +106,4 @@ Copy-Item .env.example .env
 .\start.ps1
 ```
 
-真实 `.env` 和本地记忆不会通过 Git 分发。
+`.env` 和本地记忆不会通过 Git 分发，必须在每台电脑上单独配置。

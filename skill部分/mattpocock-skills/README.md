@@ -1,10 +1,10 @@
 # mattpocock/skills
 
 > 本目录为索引，不镜像项目本体。
-> 上游仓库：https://github.com/mattpocock/skills （⭐194k，MIT 协议）
+> 上游仓库：https://github.com/mattpocock/skills （MIT）
 > 作者：Matt Pocock（TypeScript 社区知名教育者）
 
-目前最火的个人 AI skills 合集，含 **grill-me** 在内共 30+ 个 skill，覆盖工程、生产力、写作等场景。
+个人 AI Skills 合集，覆盖需求澄清、实现、测试、审查、调研、交接和写作等场景。本页是选型索引；具体 Skill 数量和状态以上游仓库为准。
 
 ## 安装方式
 
@@ -12,11 +12,13 @@
 npx skills add mattpocock/skills        # 官方推荐（见仓库 README）
 ```
 
-或手动把对应 `skills/<分类>/<名称>/SKILL.md` 复制到工具的 skills 目录（如 `~/.workbuddy/skills/`）。
+也可以把对应的 `skills/<分类>/<名称>/` 完整目录复制到当前 AI 工具的 Skills 目录。
 
-## Skill 全清单
+## Skill 索引
 
-### engineering（工程）— 17 个
+以下清单记录本仓库整理时的上游分类。安装前应检查上游当前状态，避免安装已废弃或仍在开发中的 Skill。
+
+### engineering（工程）
 | Skill | 用途 |
 |---|---|
 | ask-matt | 向"虚拟 Matt"提问 |
@@ -37,7 +39,7 @@ npx skills add mattpocock/skills        # 官方推荐（见仓库 README）
 | triage | 问题分诊 |
 | wayfinder | 代码库导航 |
 
-### productivity（生产力）— 6 个
+### productivity（生产力）
 | Skill | 用途 |
 |---|---|
 | **grill-me** ⭐ | 动手前连环追问，压测你的计划/设计，直到达成共识 |
@@ -46,7 +48,7 @@ npx skills add mattpocock/skills        # 官方推荐（见仓库 README）
 | teach | 教学模式 |
 | writing-great-skills | 教你写高质量 skill |
 
-### misc（杂项）— 4 个
+### misc（杂项）
 | Skill | 用途 |
 |---|---|
 | git-guardrails-claude-code | git 操作护栏 |
@@ -54,14 +56,14 @@ npx skills add mattpocock/skills        # 官方推荐（见仓库 README）
 | scaffold-exercises | 练习脚手架 |
 | setup-pre-commit | 配置 pre-commit |
 
-### personal（个人）— 3 个
+### personal（个人）
 | Skill | 用途 |
 |---|---|
 | edit-article | 文章编辑 |
 | obsidian-vault | Obsidian 笔记库操作 |
 
-### in-progress（开发中，9 个）
+### in-progress（开发中）
 batch-grill-me、claude-handoff、loop-me、setup-ts-deep-modules、to-questionnaire、wizard、writing-beats、writing-fragments、writing-shape
 
-### deprecated（已废弃，4 个）
+### deprecated（已废弃）
 design-an-interface、qa、request-refactor-plan、ubiquitous-language

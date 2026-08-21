@@ -1,7 +1,14 @@
 # AGENTS.md — AI 搭建执行手册
 
-> 本文件面向 AI agent。任务：在用户机器上搭建本仓库收录的 AI 工作流。
-> 执行原则：逐项安装 → 验证 → 报告；任何一步失败就停下来报告，不要硬闯。
+本文件约束 AI agent 如何在用户机器上搭建和使用本仓库收录的工作流。
+
+执行顺序固定为：
+
+1. 检查前置依赖。
+2. 根据用户选择逐项安装。
+3. 每安装一项，立即验证。
+4. 任一步失败时停止后续操作并报告，不尝试绕过。
+5. 汇总安装、验证和待用户处理的事项。
 
 ## 0. 前置检查
 
@@ -12,11 +19,11 @@
 | Node.js | `node --version` | ≥ 18（部分 skills 安装器需要） |
 | Git | `git --version` | 任意 |
 
-缺前置依赖时：报告用户并停止，不要擅自安装系统级软件。
+缺少必需依赖时，报告缺少的项目并停止。不得擅自安装系统级软件。`uv` 是可选依赖，缺失本身不阻塞其他安装。
 
 ## 1. MCP：code-review-graph
 
-**用途**：代码库结构图谱，让 AI 只读必要文件，省 token（官方 benchmark：review 6.8×，日常最高 49×）。
+**用途**：建立代码结构图谱，供 AI 查询符号、调用关系和影响范围，减少不必要的源文件读取。上游公布的 benchmark 见索引文档。
 **索引**：[mcp部分/code-review-graph/README.md](./mcp部分/code-review-graph/README.md)
 
 ### 安装
@@ -36,19 +43,19 @@ code-review-graph --version
 
 ### 使用规则（强制执行）
 
-图谱构建完成后，本规则**永久生效**，优先级高于 AI 的默认行为：
+图谱构建完成后，以下规则持续生效，优先级高于 AI 的默认代码检索方式：
 
 1. **强制走图谱**：查代码、定位符号、分析调用关系，一律使用 code-review-graph 的 MCP 工具查询。
-2. **禁止全量扫描**：不得对整个项目做目录遍历 / 全文 grep / 批量读文件。
+2. **禁止全量扫描**：不得对整个项目做目录遍历、全文 grep 或批量读取文件。
 3. **最小路径例外**：图谱确实答不了、必须读源文件时——
    - 只允许读**最小范围的指定路径**（单文件或单目录，禁止从根目录递归）
-   - **每次都必须先向用户弹确认框**，说明要读什么路径、为什么图谱给不了
-   - 用户拒绝则停止，不得绕过
+   - 每次都必须先向用户弹确认框，说明要读取的路径及图谱无法回答的原因。
+   - 用户拒绝后停止，不得换用其他方式绕过。
 4. **图谱保鲜（约 3 天周期）**：
-   - AI 无后台定时能力，执行方式为：**每次会话开始时**检查图谱最后构建时间，超过 3 天未更新则提示用户
+   - AI 无后台定时能力。每次会话开始时检查图谱最后构建时间；超过 3 天未更新则提示用户。
    - 提示语示例：💡 代码图谱已 N 天未更新，代码可能已变化，建议重新 build。要更新吗？
    - **重建前必须用户确认**；确认后执行 `code-review-graph build`（增量更新）
-5. 图谱未构建的项目：先向用户提议建图，确认后执行 build，之后按以上规则走。
+5. 项目尚未构建图谱时，先提议建图；用户确认后执行 `code-review-graph build`，之后按以上规则查询。
 
 ### 回退
 
@@ -64,13 +71,14 @@ code-review-graph uninstall             # 确认后执行
 
 ### 安装
 
-无需安装，`npx` 直跑。`mcp.json` 片段见索引文档。
+无需单独安装，使用 `npx` 启动。`mcp.json` 配置片段见索引文档。
 
 ### 使用规则（强制执行）
 
-- **生产/线上库一律 `--readOnly`**；写操作只允许指向内网测试库
-- 连接串只走环境变量 `MDB_MCP_CONNECTION_STRING`，**不得写进任何提交到仓库的文件**
-- 涉及删改操作（非只读模式时）必须先向用户弹确认框
+- 生产或线上数据库一律使用 `--readOnly`。
+- 写操作只允许指向内网测试库。
+- 连接串只能通过环境变量 `MDB_MCP_CONNECTION_STRING` 传入，不得写入任何会提交到仓库的文件。
+- 非只读模式下的删改操作必须先向用户弹确认框。
 
 ## 2. Skills：mattpocock/skills
 
@@ -83,7 +91,7 @@ code-review-graph uninstall             # 确认后执行
 npx skills add mattpocock/skills
 ```
 
-或按需手动复制：从上游仓库 `skills/<分类>/<名称>/SKILL.md` 复制到当前 AI 工具的 skills 目录。
+也可以按需手动复制：从上游仓库的 `skills/<分类>/<名称>/` 复制完整 Skill 目录到当前 AI 工具的 Skills 目录。
 
 ### 验证
 
@@ -113,18 +121,18 @@ npx skills add mattpocock/skills
 
 ### 特别规则
 
-- superpowers **允许自动触发**（其设计即为 session-start 激活），是本仓库「弹确认框」铁律的唯一例外
-- 但其产出的 spec/计划仍须经用户确认后才可执行实现
+- superpowers 允许自动触发（其设计依赖 session-start 激活），是本仓库 Skill 确认规则的唯一例外。
+- superpowers 产出的 spec 和实现计划仍须经用户确认后才能执行。
 
-## 3. 工作流规则：Skill 使用指引
+## 3. Skill 启用规则
 
-**铁律：任何 skill 不得自动启用（superpowers 除外，见 2b 节）。** 匹配到场景时，必须先向用户弹提示确认，例如：
+除 superpowers 外，任何 Skill 都不得自动启用。匹配到使用场景时，先向用户弹提示确认，例如：
 
 > 💡 当前是功能需求类任务，建议先用 **grill-me** 澄清需求。要启用吗？
 
-用户同意后才执行；用户拒绝则按原任务继续，不得反复提议。
+用户同意后再启用。用户拒绝后按原任务继续，不得在同一任务中反复提议。
 
-### 场景匹配表（按任务类型选 skill）
+### 按任务类型选择 Skill
 
 **需求与方案阶段**
 | 场景 | 推荐 skill | 作用 |
@@ -169,11 +177,11 @@ npx skills add mattpocock/skills
 | 配 pre-commit 钩子 | setup-pre-commit | Husky + lint-staged |
 | 首次启用 engineering 系列 | setup-matt-pocock-skills | 配 issue tracker/术语/文档布局 |
 
-> 组合示例：功能开发标准链路 = grill-me → to-spec → to-tickets → implement（可选 tdd）→ code-review
+功能开发的常用链路：`grill-me` → `to-spec` → `to-tickets` → `implement` → `code-review`。需要测试先行时，在实现阶段启用 `tdd`。
 
 ## 4. Qoder 部署指引
 
-目标平台为 Qoder 时，按本节执行（与通用流程的差异在此）：
+目标平台为 Qoder 时，通用规则仍然生效，安装方式按下表调整：
 
 | 项目 | 支持程度 | 部署方式 |
 |---|---|---|
@@ -183,7 +191,7 @@ npx skills add mattpocock/skills
 
 ### superpowers 在 Qoder 上的补偿措施
 
-其"session-start 自动激活"依赖插件 hook，Qoder 跑不了。用 Qoder 的 Rules 机制补偿——在项目 Rules 中加入：
+superpowers 的 session-start 自动激活依赖插件 hook，Qoder 无法运行该 hook。改用 Qoder Rules：
 
 ```
 开发类任务必须遵循流程：先澄清需求并产出 spec → 用户确认 → 写实现计划（TDD、YAGNI、DRY）→ 用户确认 → 再动手实现。
@@ -196,9 +204,10 @@ npx skills add mattpocock/skills
 - 自定义 Subagent：`~/.qoder/agents/*.md`（用户级）或 `${project}/.qoder/agents/*.md`（项目级），frontmatter 可绑定 skills 与 mcpServers
 - Rules：始终生效，适合放全局行为约束（如上面的流程规则、本文件第 3 节的确认框铁律）
 
-## 5. 完成后报告
+## 5. 完成报告
 
-向用户报告：
-1. 每项的安装状态（成功/跳过/失败 + 原因）
-2. 验证结果
-3. 需要用户手动操作的部分（如重启编辑器）
+安装流程结束后，向用户报告：
+
+1. 每一项的状态：成功、跳过或失败；跳过和失败必须说明原因。
+2. 每一项实际执行的验证及结果。
+3. 仍需用户手动完成的操作，例如重启编辑器或填写本机凭据。

@@ -12,6 +12,28 @@ Use these as diagnostic checks, not as proof that text is AI-generated and not a
 - Vague attribution: "数据显示", "研究表明", "业内认为" without a source.
 - Fabricated precision: plausible-looking percentages, latency, throughput, dates, line numbers, or severity that do not come from evidence.
 
+## Remove unearned contrast and transition
+
+A connector makes a logical claim. A contrast marker claims that two propositions conflict; a concession introduces a real exception; a correction rejects a view already in play. Do not add these relations only for rhythm or emphasis.
+
+Before keeping one:
+
+1. Identify the two propositions it connects.
+2. State the concrete conflict, exception, or correction between them.
+3. Delete the connector and its setup. If the conclusion remains complete and loses no important meaning, state the conclusion directly.
+
+Rewrite when:
+
+- the rejected view was invented only to introduce the actual claim;
+- the preceding text never asserted or implied the first side;
+- the two clauses are additive rather than conflicting;
+- the negative clause merely delays a stronger positive sentence;
+- the transition announces emphasis but does not change the reasoning.
+
+Review candidates include `不是……而是`, `X，而不是 Y`, `X，而非 Y`, `与其……不如`, `并非……而是`, `虽然……但是`, `不仅……还`, sentence-leading `但`, `然而`, `不过`, `其实`, `反而`, `仍然`, and staged corrections such as `这并不意味着`, `真正的问题是`, `更准确地说`, `看似……实际上`. Apply the same check to English forms such as `not X but Y`, `rather than`, `however`, `actually`, `instead`, and `rather`.
+
+Keep the relation when the source contains real alternatives, an explicit misconception, a meaningful exception, or a comparison needed for the decision. Do not invent a mistaken reader, rejected alternative, or common belief merely to create a transition.
+
 ## Rewrite when clustered
 
 - Repeated 总分总 structure or a mechanical 首先/其次/最后 sequence.

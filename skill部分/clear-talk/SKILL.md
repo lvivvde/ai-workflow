@@ -64,7 +64,9 @@ Do not manufacture this checklist in unrelated answers. Mention only factors tha
 
 Apply [references/anti-slop.md](references/anti-slop.md) when drafting or revising substantial prose. The aim is not detector evasion. It is direct, source-safe technical writing.
 
-Preserve deliberate terminology, necessary passive voice, legal or protocol precision, and useful repetition. A single stylistic pattern is not a defect by itself. Fix clusters that add friction or hide weak reasoning.
+Preserve deliberate terminology, necessary passive voice, legal or protocol precision, and useful repetition. Do not reject wording from a keyword alone. Rewrite even a single occurrence when it fails the deletion test or claims a contrast, concession, correction, or transition that the surrounding text does not establish.
+
+For substantial prose stored in a local text file, run `python scripts/scan_connectors.py <file>` when the script is available. Treat every match as a review candidate, not an automatic violation.
 
 ## Final pass
 
@@ -74,6 +76,7 @@ Before returning a substantial answer, check:
 - Does each important claim point to evidence, code, metrics, or an explicitly labeled inference?
 - Did the answer omit any condition that could reverse the conclusion?
 - Is any section repeating, announcing, decorating, or softening instead of informing?
+- Does every contrast, concession, correction, or transition have two explicit sides and change the meaning? If not, state the conclusion directly.
 - Are code locations, units, severities, and confidence labels accurate and consistent?
 
 Revise failed items once. Do not expose the checklist or add a ceremonial change summary unless the user asks.

@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>纵向箭头策划记法｜逻辑原型</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #17202a;
+      --muted: #667085;
+      --paper: #f7f6f2;
+      --card: #ffffff;
+      --line: #dedbd2;
+      --accent: #285f54;
+      --accent-soft: #e8f2ef;
+      --warn: #9a5b13;
+      --warn-soft: #fff4df;
+      --danger: #9c3d35;
+      --shadow: 0 12px 32px rgba(23, 32, 42, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: Inter, "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+      line-height: 1.55;
+    }
+    main { max-width: 1180px; margin: 0 auto; padding: 42px 24px 72px; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { font-size: clamp(28px, 4vw, 44px); line-height: 1.14; margin-bottom: 12px; }
+    h2 { font-size: 21px; margin-bottom: 16px; }
+    h3 { font-size: 15px; margin-bottom: 10px; }
+    button, textarea, select { font: inherit; }
+    button {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--card);
+      color: var(--ink);
+      padding: 9px 13px;
+      cursor: pointer;
+    }
+    button:hover { border-color: var(--accent); }
+    button.primary { background: var(--accent); color: white; border-color: var(--accent); }
+    button.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+    button:disabled { opacity: 0.45; cursor: default; }
+    .eyebrow {
+      display: inline-block;
+      margin-bottom: 14px;
+      padding: 5px 9px;
+      border: 1px solid #c9a45e;
+      border-radius: 999px;
+      color: #795719;
+      background: #fff8e8;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+    .lede { max-width: 850px; color: var(--muted); font-size: 17px; }
+    .question {
+      margin: 24px 0 28px;
+      padding: 18px 20px;
+      border-left: 4px solid var(--accent);
+      background: var(--card);
+      box-shadow: var(--shadow);
+    }
+    .grid { display: grid; grid-template-columns: minmax(300px, 0.9fr) minmax(360px, 1.1fr); gap: 22px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 15px; padding: 20px; box-shadow: var(--shadow); }
+    textarea {
+      width: 100%;
+      min-height: 250px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 14px;
+      background: #fcfcfa;
+      color: var(--ink);
+      font-family: "Cascadia Code", "Microsoft YaHei", monospace;
+      line-height: 1.7;
+    }
+    .label { display: block; margin-bottom: 7px; color: var(--muted); font-size: 13px; font-weight: 700; }
+    .button-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .policy-row { display: grid; gap: 8px; margin: 14px 0; }
+    .policy-button { text-align: left; }
+    .policy-button strong, .policy-button small { display: block; }
+    .policy-button small { margin-top: 3px; color: var(--muted); }
+    .policy-button.active small { color: #3c6f65; }
+    .state-head { display: flex; align-items: start; justify-content: space-between; gap: 14px; margin-bottom: 14px; }
+    .status { padding: 5px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 700; white-space: nowrap; }
+    .change { color: var(--muted); font-size: 13px; margin: -7px 0 16px; }
+    .source-lines { display: grid; gap: 6px; }
+    .source-line {
+      display: grid;
+      grid-template-columns: 34px 1fr auto;
+      align-items: center;
+      gap: 8px;
+      min-height: 38px;
+      padding: 5px 7px;
+      border: 1px solid #ebe8e0;
+      border-radius: 9px;
+      background: #fcfcfa;
+    }
+    .line-number { color: #98a2b3; font-size: 12px; text-align: right; }
+    .line-content { white-space: pre; overflow-x: auto; font-family: "Cascadia Code", "Microsoft YaHei", monospace; }
+    .badge { padding: 3px 7px; border-radius: 999px; background: #eef0f2; color: #59616b; font-size: 11px; }
+    .badge.arrow { color: var(--accent); background: var(--accent-soft); }
+    .badge.decorative { color: var(--danger); background: #fdeceb; }
+    .mini { padding: 5px 8px; font-size: 11px; }
+    .graph { margin-top: 14px; padding: 16px; border-radius: 12px; background: #f5f8f7; }
+    .node { margin-left: calc(var(--indent) * 24px); }
+    .node-box { display: inline-flex; gap: 8px; align-items: center; border: 1px solid #b8ccc7; border-radius: 9px; padding: 8px 10px; background: white; }
+    .node-id { color: var(--muted); font-size: 11px; }
+    .edge { margin-left: calc(var(--indent) * 24px + 16px); padding: 4px 0; color: var(--accent); font-size: 13px; }
+    .edge.uncertain { color: var(--warn); }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+    .panel { border: 1px solid #ebe8e0; border-radius: 11px; padding: 13px; }
+    .panel ul { padding-left: 20px; margin: 0; }
+    .empty { color: var(--muted); font-size: 13px; }
+    .warning { color: var(--warn); background: var(--warn-soft); border-radius: 8px; padding: 8px 10px; margin-bottom: 7px; }
+    .walkthrough { margin-top: 24px; }
+    .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 15px; }
+    .scenario-copy { color: var(--muted); max-width: 780px; }
+    .steps { display: grid; gap: 9px; margin-top: 16px; }
+    .step { display: flex; gap: 10px; align-items: center; }
+    .step-index { width: 25px; height: 25px; display: grid; place-items: center; border-radius: 50%; background: #edf0ef; font-size: 12px; }
+    .step.done .step-index { background: var(--accent); color: white; }
+    .step.done button { text-decoration: line-through; opacity: 0.55; }
+    .fine-print { color: var(--muted); font-size: 12px; margin-top: 20px; }
+    @media (max-width: 820px) {
+      main { padding: 28px 14px 50px; }
+      .grid, .two-col { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <span class="eyebrow">一次性逻辑原型 · 不进入生产</span>
+    <h1>纵向箭头策划记法</h1>
+    <p class="lede">输入策划常见的“文字、向下箭头、下一段文字”，切换三种规则，观察系统会怎样生成顺序、父子关系和不确定项。</p>
+    <div class="question">
+      <strong>这个原型回答的问题：</strong>
+      当 OCR 得到带行号、缩进和箭头的文字块时，哪些关系可以自动确认，哪些只能作为候选，哪些应忽略为装饰，才能符合策划直觉而不制造项目事实？
+      <div style="margin-top:10px;color:var(--accent)"><strong>已采纳：</strong>独占一块且端点唯一的向下箭头确认 `next_step` 结构关系；缩进只记录 `depth_hint`，不单独确认父子关系。</div>
+    </div>
+
+    <div class="grid">
+      <section class="card">
+        <h2>输入与自由试验</h2>
+        <label class="label" for="source">每行代表一个 OCR 文本块；前导空格模拟水平缩进</label>
+        <textarea id="source" spellcheck="false"></textarea>
+        <div class="button-row">
+          <button class="primary" data-action="parse">重新解析</button>
+          <button data-sample="straight">直线递进</button>
+          <button data-sample="nested">缩进层级</button>
+          <button data-sample="branch">分支歧义</button>
+          <button data-sample="broken">缺失节点</button>
+        </div>
+
+        <h3 style="margin-top:22px">关系规则</h3>
+        <div class="policy-row" id="policy-buttons"></div>
+        <p class="fine-print">箭头可在右侧状态面板中逐个标记为“装饰”。这模拟人工确认，不修改源文字。</p>
+      </section>
+
+      <section class="card" aria-live="polite">
+        <div class="state-head">
+          <div>
+            <h2>当前完整状态</h2>
+            <div id="policy-description" class="empty"></div>
+          </div>
+          <span class="status" id="status"></span>
+        </div>
+        <div class="change" id="change"></div>
+        <h3>原始行与分类</h3>
+        <div class="source-lines" id="source-lines"></div>
+        <h3 style="margin-top:18px">还原后的关系图</h3>
+        <div class="graph" id="graph"></div>
+        <div class="two-col">
+          <div class="panel"><h3>关系</h3><div id="relations"></div></div>
+          <div class="panel"><h3>不确定项</h3><div id="uncertainties"></div></div>
+        </div>
+      </section>
+    </div>
+
+    <section class="card walkthrough">
+      <h2>引导场景</h2>
+      <div class="tabs" id="tabs"></div>
+      <h3 id="scenario-title"></h3>
+      <p class="scenario-copy" id="scenario-copy"></p>
+      <div class="steps" id="steps"></div>
+    </section>
+  </main>
+
+  <script>
+    const VerticalFlowModel = (() => {
+      const arrowPattern = /^(?:↓|⇩|⬇|▼|⇣)+$/u;
+
+      const policies = {
+        sequence: {
+          name: "已采纳：顺序优先",
+          description: "箭头连接前后唯一文字并形成 next_step；缩进只记录 depth_hint，不自动产生父子关系。"
+        },
+        hierarchy: {
+          name: "实验变体：缩进形成层级",
+          description: "更深缩进只生成 child_step 候选；同级为下一步；回退缩进保留歧义。该策略未被采纳。"
+        },
+        strict: {
+          name: "严格确认",
+          description: "只有前后文字同级且箭头位置相符时自动确认；其余关系全部进入不确定项。"
+        }
+      };
+
+      const samples = {
+        straight: "打开活动界面\n↓\n选择关卡\n↓\n点击开始挑战",
+        nested: "完成主线任务\n↓\n  解锁活动入口\n  ↓\n  领取首次奖励\n↓\n返回主界面",
+        branch: "战斗结束\n↓\n  胜利：展示奖励\n  失败：展示复活\n↓\n返回大厅",
+        broken: "进入副本\n↓\n↓\n结算\n↓"
+      };
+
+      function classify(source) {
+        return source.replace(/\r/g, "").split("\n").map((raw, index) => {
+          const trimmed = raw.trim();
+          const indent = raw.match(/^\s*/u)[0].replace(/\t/g, "  ").length;
+          return {
+            id: `line-${index + 1}`,
+            lineNumber: index + 1,
+            raw,
+            text: trimmed,
+            indent,
+            kind: trimmed === "" ? "blank" : arrowPattern.test(trimmed) ? "arrow" : "text"
+          };
+        });
+      }
+
+      function nearestText(lines, start, direction) {
+        for (let index = start + direction; index >= 0 && index < lines.length; index += direction) {
+          if (lines[index].kind === "text") return lines[index];
+          if (lines[index].kind === "blank") break;
+        }
+        return null;
+      }
+
+      function relationFor(source, target, arrow, policy) {
+        const sourceIndent = source.indent;
+        const targetIndent = target.indent;
+        const arrowAligned = Math.abs(arrow.indent - Math.min(sourceIndent, targetIndent)) <= 2;
+        const depthHint = targetIndent > sourceIndent ? "deeper" : targetIndent < sourceIndent ? "shallower" : "same_level";
+
+        if (policy === "sequence") {
+          return {
+            type: "next_step",
+            depthHint,
+            confidence: arrowAligned ? "high" : "medium",
+            status: "confirmed",
+            reason: arrowAligned ? "箭头位于相邻文字之间并大致对齐；缩进仅作为提示" : "箭头端点明确；位置偏差和缩进保留为提示"
+          };
+        }
+
+        if (policy === "strict") {
+          if (sourceIndent === targetIndent && arrowAligned) {
+            return { type: "next_step", depthHint, confidence: "high", status: "confirmed", reason: "同级文字与箭头对齐" };
+          }
+          return { type: "candidate", depthHint, confidence: "low", status: "uncertain", reason: "严格规则不自动解释缩进变化" };
+        }
+
+        if (targetIndent > sourceIndent) {
+          return { type: "child_step", depthHint, confidence: arrowAligned ? "high" : "medium", status: "candidate", reason: "实验变体把目标缩进解释为层级；该行为未被采纳" };
+        }
+        if (targetIndent === sourceIndent) {
+          return { type: "next_step", depthHint, confidence: arrowAligned ? "high" : "medium", status: "confirmed", reason: "前后文字同级" };
+        }
+        return { type: "return_or_sibling", depthHint, confidence: "low", status: "uncertain", reason: "目标缩进回退，可能是返回上层或开始同级步骤" };
+      }
+
+      function parse(source, policy = "sequence", decorativeArrowIds = []) {
+        const decorative = new Set(decorativeArrowIds);
+        const lines = classify(source);
+        const nodes = lines.filter(line => line.kind === "text");
+        const relations = [];
+        const uncertainties = [];
+
+        for (let index = 0; index < lines.length; index += 1) {
+          const arrow = lines[index];
+          if (arrow.kind !== "arrow") continue;
+          if (decorative.has(arrow.id)) continue;
+
+          const sourceNode = nearestText(lines, index, -1);
+          const targetNode = nearestText(lines, index, 1);
+          if (!sourceNode || !targetNode) {
+            uncertainties.push({
+              arrowId: arrow.id,
+              lineNumber: arrow.lineNumber,
+              reason: !sourceNode ? "箭头前没有可连接的文字节点" : "箭头后没有可连接的文字节点"
+            });
+            continue;
+          }
+
+          const between = lines.slice(sourceNode.lineNumber, targetNode.lineNumber - 1);
+          if (between.filter(line => line.kind === "arrow" && !decorative.has(line.id)).length > 1) {
+            uncertainties.push({ arrowId: arrow.id, lineNumber: arrow.lineNumber, reason: "相邻文字之间存在连续箭头，无法判断是否重复强调" });
+            continue;
+          }
+
+          const interpretation = relationFor(sourceNode, targetNode, arrow, policy);
+          const relation = {
+            id: `edge-${arrow.lineNumber}`,
+            arrowId: arrow.id,
+            source: sourceNode.id,
+            target: targetNode.id,
+            sourceText: sourceNode.text,
+            targetText: targetNode.text,
+            ...interpretation
+          };
+          relations.push(relation);
+          if (relation.status === "uncertain" || relation.status === "candidate") {
+            uncertainties.push({ arrowId: arrow.id, lineNumber: arrow.lineNumber, reason: relation.reason });
+          }
+        }
+
+        const connectedNodeIds = new Set(relations.flatMap(relation => [relation.source, relation.target]));
+        nodes.forEach((node, index) => {
+          const isBoundaryNode = index === 0 || index === nodes.length - 1;
+          if (!isBoundaryNode && !connectedNodeIds.has(node.id)) {
+            uncertainties.push({
+              arrowId: null,
+              lineNumber: node.lineNumber,
+              reason: "文字节点没有进入任何箭头关系，可能是并列分支、补充说明或遗漏连接"
+            });
+          }
+          const previousNode = nodes[index - 1];
+          if (previousNode && node.lineNumber === previousNode.lineNumber + 1) {
+            uncertainties.push({
+              arrowId: null,
+              lineNumber: node.lineNumber,
+              reason: "与上一文字节点之间没有箭头；可能是并列分支、同一节点的续行或普通说明"
+            });
+          }
+        });
+
+        return { source, policy, policyDefinition: policies[policy], lines, nodes, relations, uncertainties, decorativeArrowIds: [...decorative] };
+      }
+
+      function reduce(state, action) {
+        switch (action.type) {
+          case "set_source": return { ...state, source: action.source, change: "已替换输入样例" };
+          case "set_policy": return { ...state, policy: action.policy, change: `已切换为“${policies[action.policy].name}”` };
+          case "toggle_decorative": {
+            const ids = new Set(state.decorativeArrowIds);
+            ids.has(action.arrowId) ? ids.delete(action.arrowId) : ids.add(action.arrowId);
+            return { ...state, decorativeArrowIds: [...ids], change: ids.has(action.arrowId) ? "已把箭头标记为装饰" : "已恢复箭头参与解析" };
+          }
+          case "parse": return { ...state, change: "已按当前规则重新解析" };
+          default: return state;
+        }
+      }
+
+      return { policies, samples, parse, reduce };
+    })();
+
+    const scenarios = [
+      {
+        id: "happy",
+        title: "直线递进：应该自动确认吗？",
+        copy: "三个同级文字块由向下箭头连接。观察顺序优先与严格确认是否给出相同结果。",
+        steps: [
+          { label: "载入直线递进", action: { type: "sample", sample: "straight" } },
+          { label: "使用顺序优先", action: { type: "policy", policy: "sequence" } },
+          { label: "改用严格确认", action: { type: "policy", policy: "strict" } }
+        ]
+      },
+      {
+        id: "indent",
+        title: "缩进：是层级还是仅仅排版？",
+        copy: "目标文字向右缩进。比较“顺序优先”和“缩进形成层级”，决定缩进能否成为父子关系证据。",
+        steps: [
+          { label: "载入缩进层级", action: { type: "sample", sample: "nested" } },
+          { label: "只解释为顺序", action: { type: "policy", policy: "sequence" } },
+          { label: "解释为父子层级", action: { type: "policy", policy: "hierarchy" } }
+        ]
+      },
+      {
+        id: "ambiguous",
+        title: "分支与装饰：系统应该克制到什么程度？",
+        copy: "一个箭头后出现两行并列文字，随后回到上层。观察系统如何保留无法确定的分支与回退语义。",
+        steps: [
+          { label: "载入分支歧义", action: { type: "sample", sample: "branch" } },
+          { label: "使用缩进层级", action: { type: "policy", policy: "hierarchy" } },
+          { label: "把首个箭头标成装饰", action: { type: "decorate_first" } }
+        ]
+      },
+      {
+        id: "invalid",
+        title: "连续箭头与缺失目标",
+        copy: "连续两个箭头以及末尾孤立箭头都不应被系统静默补全。它们必须进入不确定项。",
+        steps: [
+          { label: "载入缺失节点", action: { type: "sample", sample: "broken" } },
+          { label: "使用顺序优先", action: { type: "policy", policy: "sequence" } },
+          { label: "重新解析并检查不确定项", action: { type: "parse" } }
+        ]
+      }
+    ];
+
+    let state = {
+      source: VerticalFlowModel.samples.straight,
+      policy: "sequence",
+      decorativeArrowIds: [],
+      change: "已载入默认直线递进场景",
+      scenario: "happy",
+      completedSteps: []
+    };
+
+    const $ = id => document.getElementById(id);
+    const escapeHtml = value => String(value).replace(/[&<>"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[char]));
+
+    function dispatch(action) {
+      if (action.type === "sample") {
+        state = VerticalFlowModel.reduce(state, { type: "set_source", source: VerticalFlowModel.samples[action.sample] });
+        state.decorativeArrowIds = [];
+      } else if (action.type === "policy") {
+        state = VerticalFlowModel.reduce(state, { type: "set_policy", policy: action.policy });
+      } else if (action.type === "decorate_first") {
+        const firstArrow = VerticalFlowModel.parse(state.source, state.policy, state.decorativeArrowIds).lines.find(line => line.kind === "arrow");
+        if (firstArrow) state = VerticalFlowModel.reduce(state, { type: "toggle_decorative", arrowId: firstArrow.id });
+      } else {
+        state = VerticalFlowModel.reduce(state, action);
+      }
+      render();
+    }
+
+    function render() {
+      $("source").value = state.source;
+      const parsed = VerticalFlowModel.parse(state.source, state.policy, state.decorativeArrowIds);
+      const policy = VerticalFlowModel.policies[state.policy];
+      $("policy-description").textContent = policy.description;
+      $("status").textContent = `${parsed.nodes.length} 个文字节点 · ${parsed.relations.length} 条关系`;
+      $("change").textContent = state.change;
+
+      $("policy-buttons").innerHTML = Object.entries(VerticalFlowModel.policies).map(([id, item]) => `
+        <button class="policy-button ${state.policy === id ? "active" : ""}" data-policy="${id}">
+          <strong>${item.name}</strong><small>${item.description}</small>
+        </button>`).join("");
+
+      $("source-lines").innerHTML = parsed.lines.map(line => {
+        const isDecorative = state.decorativeArrowIds.includes(line.id);
+        const badge = isDecorative ? "装饰" : line.kind === "arrow" ? "箭头" : line.kind === "blank" ? "空行" : `文字 · 缩进 ${line.indent}`;
+        return `<div class="source-line">
+          <span class="line-number">${line.lineNumber}</span>
+          <span class="line-content">${escapeHtml(line.raw || " ")}</span>
+          ${line.kind === "arrow" ? `<button class="mini" data-arrow="${line.id}">${isDecorative ? "恢复关系" : "标为装饰"}</button>` : `<span class="badge ${isDecorative ? "decorative" : line.kind}">${badge}</span>`}
+        </div>`;
+      }).join("");
+
+      const relationBySource = new Map(parsed.relations.map(relation => [relation.source, relation]));
+      $("graph").innerHTML = parsed.nodes.length ? parsed.nodes.map(node => {
+        const relation = relationBySource.get(node.id);
+        return `<div class="node" style="--indent:${Math.floor(node.indent / 2)}">
+          <div class="node-box"><span class="node-id">L${node.lineNumber}</span><strong>${escapeHtml(node.text)}</strong></div>
+          ${relation ? `<div class="edge ${relation.status === "uncertain" || relation.status === "candidate" ? "uncertain" : ""}">↓ ${relation.type} · depth_hint=${relation.depthHint} · ${relation.confidence} · ${escapeHtml(relation.reason)}</div>` : ""}
+        </div>`;
+      }).join("") : `<div class="empty">没有文字节点</div>`;
+
+      $("relations").innerHTML = parsed.relations.length ? `<ul>${parsed.relations.map(relation => `
+                <li><strong>${escapeHtml(relation.sourceText)}</strong> → <strong>${escapeHtml(relation.targetText)}</strong><br><span class="empty">${relation.type} / ${relation.status} / ${relation.confidence} / depth_hint=${relation.depthHint}</span></li>`).join("")}</ul>` : `<div class="empty">没有可用关系</div>`;
+
+      $("uncertainties").innerHTML = parsed.uncertainties.length ? parsed.uncertainties.map(item => `<div class="warning">第 ${item.lineNumber} 行：${escapeHtml(item.reason)}</div>`).join("") : `<div class="empty">没有不确定项</div>`;
+
+      $("tabs").innerHTML = scenarios.map(item => `<button class="${state.scenario === item.id ? "active" : ""}" data-scenario="${item.id}">${item.title}</button>`).join("");
+      const scenario = scenarios.find(item => item.id === state.scenario);
+      $("scenario-title").textContent = scenario.title;
+      $("scenario-copy").textContent = scenario.copy;
+      $("steps").innerHTML = scenario.steps.map((step, index) => {
+        const key = `${scenario.id}-${index}`;
+        const done = state.completedSteps.includes(key);
+        return `<div class="step ${done ? "done" : ""}"><span class="step-index">${index + 1}</span><button data-step="${index}">${step.label}</button></div>`;
+      }).join("");
+
+      document.querySelectorAll("[data-policy]").forEach(button => button.onclick = () => dispatch({ type: "set_policy", policy: button.dataset.policy }));
+      document.querySelectorAll("[data-arrow]").forEach(button => button.onclick = () => dispatch({ type: "toggle_decorative", arrowId: button.dataset.arrow }));
+      document.querySelectorAll("[data-scenario]").forEach(button => button.onclick = () => {
+        state.scenario = button.dataset.scenario;
+        state.completedSteps = [];
+        state.change = "已开始新的引导场景";
+        render();
+      });
+      document.querySelectorAll("[data-step]").forEach(button => button.onclick = () => {
+        const index = Number(button.dataset.step);
+        const key = `${scenario.id}-${index}`;
+        if (!state.completedSteps.includes(key)) state.completedSteps.push(key);
+        dispatch(scenario.steps[index].action);
+      });
+    }
+
+    $("source").addEventListener("input", event => {
+      state.source = event.target.value;
+      state.change = "输入已变化；状态实时重新解析";
+      render();
+    });
+    document.querySelector("[data-action='parse']").onclick = () => dispatch({ type: "parse" });
+    document.querySelectorAll("[data-sample]").forEach(button => button.onclick = () => dispatch({ type: "sample", sample: button.dataset.sample }));
+    render();
+  </script>
+</body>
+</html>

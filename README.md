@@ -8,7 +8,9 @@
 ai-workflow/
 ├── README.md                    ← 仓库总览
 ├── AGENTS.md                    ← AI 搭建与使用规则
-├── AI工具Token消耗可观测性调研.md
+├── 调研/
+│   ├── AI工具Token消耗可观测性调研.md
+│   └── SVN语义合并与生成制品调研.md
 ├── mcp部分/
 │   ├── code-review-graph/
 │   ├── game-design-knowledge-mcp/  （自建项目）
@@ -19,7 +21,8 @@ ai-workflow/
 ├── skill部分/
 │   ├── clear-talk/                 （本地 Skill）
 │   ├── mattpocock-skills/
-│   └── superpowers/
+│   ├── superpowers/
+│   └── svn-semantic-merge/         （本地 Skill）
 └── orchestrators/
     └── symphony/                  （OpenAI Symphony 源码快照）
 ```

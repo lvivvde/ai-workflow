@@ -1,0 +1,7 @@
+interface:
+  display_name: "SVN Semantic Merge"
+  short_description: "Plan approval-gated final-state SVN integrations"
+  default_prompt: "Use $svn-semantic-merge to plan a controlled final-state SVN integration, preserve target behavior, and account for mergeinfo."
+
+policy:
+  allow_implicit_invocation: false

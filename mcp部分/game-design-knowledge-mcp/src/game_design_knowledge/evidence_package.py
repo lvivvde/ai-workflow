@@ -30,6 +30,7 @@ from pathlib import Path
 import sqlite3
 from typing import Any, Mapping, Sequence
 
+from .explanation import EXPLANATION_BOUNDARY, build_explanation
 from .flow_notation import CLAIM_BOUNDARY
 from .ocr_normalization import extract_critical_tokens
 
@@ -456,6 +457,7 @@ def evidence_package(
     sections: Sequence[str] | None = None,
     limit: int = 20,
     cursor: str = "",
+    notation: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build one package for one retrieval unit, paged over its own items."""
 
@@ -467,9 +469,9 @@ def evidence_package(
     index_directory = Path(index.database_path).parent
 
     if kind == "evidence":
-        built = _evidence_unit(index, record_id, index_directory)
+        built = _evidence_unit(index, record_id, index_directory, notation=notation)
     else:
-        built = _image_unit(index, record_id, index_directory)
+        built = _image_unit(index, record_id, index_directory, notation=notation)
 
     if built is None:
         return {
@@ -563,6 +565,7 @@ def evidence_packages(
     unit_ids: Sequence[str],
     sections: Sequence[str] | None = None,
     limit: int = 20,
+    notation: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Several packages in one call, keeping every one that resolved.
 
@@ -583,7 +586,11 @@ def evidence_packages(
     for unit_id in units:
         try:
             package = evidence_package(
-                index, unit_id=unit_id, sections=sections, limit=limit
+                index,
+                unit_id=unit_id,
+                sections=sections,
+                limit=limit,
+                notation=notation,
             )
         except ValueError as error:
             unresolved.append(
@@ -636,7 +643,11 @@ def requested_sections(sections: Sequence[str] | None) -> tuple[str, ...]:
 
 
 def _evidence_unit(
-    index: Any, evidence_id: int, index_directory: Path
+    index: Any,
+    evidence_id: int,
+    index_directory: Path,
+    *,
+    notation: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     row = index.fetchone(
         """
@@ -708,34 +719,28 @@ def _evidence_unit(
         "visual_interpretation": [],
         "notation": [],
         "explanation": [],
-        "uncertainties": [
-            _uncertainty(
-                "explanation",
-                UNAVAILABLE_NO_EXPLANATION,
-                "No explanation profile is served by this build.",
-            )
-        ],
+        "uncertainties": [],
     }
-    unavailable.append(
-        _unavailable(
-            "explanation",
-            UNAVAILABLE_NO_EXPLANATION,
-            "No explanation profile is served by this build.",
-        )
+    return _with_explanation(
+        {
+            "retrieval_unit": unit,
+            "source_reference": reference,
+            "display_locator": display,
+            "asset_reference": None,
+            "sections": sections,
+            "unavailable": unavailable,
+            "provenance": _provenance(index, row, index_directory),
+        },
+        notation=notation,
     )
-    return {
-        "retrieval_unit": unit,
-        "source_reference": reference,
-        "display_locator": display,
-        "asset_reference": None,
-        "sections": sections,
-        "unavailable": unavailable,
-        "provenance": _provenance(index, row, index_directory),
-    }
 
 
 def _image_unit(
-    index: Any, image_id: int, index_directory: Path
+    index: Any,
+    image_id: int,
+    index_directory: Path,
+    *,
+    notation: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     row = index.fetchone(
         """
@@ -810,19 +815,7 @@ def _image_unit(
             "An image is a source, not a statement: quote it through the "
             "evidence rows that cite it.",
         ),
-        _unavailable(
-            "explanation",
-            UNAVAILABLE_NO_EXPLANATION,
-            "No explanation profile is served by this build.",
-        ),
     ]
-    sections["uncertainties"].append(
-        _uncertainty(
-            "explanation",
-            UNAVAILABLE_NO_EXPLANATION,
-            "No explanation profile is served by this build.",
-        )
-    )
 
     transcription = image_transcription(index, image_id)
     if transcription is None:
@@ -950,15 +943,69 @@ def _image_unit(
                 )
             )
 
-    return {
-        "retrieval_unit": unit,
-        "source_reference": reference,
-        "display_locator": display,
-        "asset_reference": asset_reference_value,
-        "sections": sections,
-        "unavailable": unavailable,
-        "provenance": _provenance(index, row, index_directory, image_id=image_id),
-    }
+    return _with_explanation(
+        {
+            "retrieval_unit": unit,
+            "source_reference": reference,
+            "display_locator": display,
+            "asset_reference": asset_reference_value,
+            "sections": sections,
+            "unavailable": unavailable,
+            "provenance": _provenance(index, row, index_directory, image_id=image_id),
+        },
+        notation=notation,
+    )
+
+
+def _with_explanation(
+    built: dict[str, Any], *, notation: Mapping[str, Any] | None = None
+) -> dict[str, Any]:
+    """Fill the explanation layer from the layers this unit already carries.
+
+    The layer is built here rather than in a caller so ``get_evidence_package``
+    and ``explain_evidence`` cannot answer differently about the same unit. A
+    unit with nothing to explain reports the layer as unavailable instead of
+    returning an empty explanation that looks like a complete one.
+    """
+
+    unit_id = str(built["retrieval_unit"]["unit_id"])
+    explanation = build_explanation(
+        units=[
+            {
+                "unit_id": unit_id,
+                "unit_type": built["retrieval_unit"]["unit_type"],
+                "source_reference": built["source_reference"],
+                "display_locator": built["display_locator"],
+                "sections": built["sections"],
+            }
+        ],
+        notation=notation,
+    )
+    if str(explanation["status"]) == "not_found" or not explanation["atoms"]:
+        built["unavailable"].append(
+            _unavailable(
+                "explanation",
+                UNAVAILABLE_NO_EXPLANATION,
+                "This unit carries no statement, region or relation to explain.",
+            )
+        )
+        return built
+    built["sections"]["explanation"] = [
+        {
+            "kind": "explanation",
+            "explanation": explanation,
+            "source_reference": built["source_reference"],
+            "evidence_status": (
+                "explicit" if str(explanation["status"]) == "found" else "candidate"
+            ),
+            "expand": {
+                "tool": "explain_evidence",
+                "arguments": {"unit_id": unit_id},
+            },
+            "boundary": EXPLANATION_BOUNDARY,
+        }
+    ]
+    return built
 
 
 def _layout_uncertainties(

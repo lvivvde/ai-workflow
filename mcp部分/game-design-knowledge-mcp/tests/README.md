@@ -48,3 +48,8 @@
 - `test_notation_dictionary.py`：范围规范化与越界拒绝（绝对路径、盘符、`..`）、驳回的箭头始终是候选而从不成为字典条目、单个区域的确认不外溢到别处、`document_type` 范围只回答该类型、两个来源分歧必须留下裁决、更高来源可记为 authority、外部常识与项目读法并排隔离，以及新修订把旧确认变成 migration candidate。
 - `test_review_actions.py`：应用必须携带预览返回的那一个 token、字典移动后 token 立即失效、`correct` 把旧值留在记录上、`reject` 之后可被后续事件推翻、拒绝候选只写日志、`ignore` 静默候选而不确认任何东西，以及整串动作前后派生索引与源文件的字节不变。
 - `test_mcp_review.py`：五个工具经 MCP 暴露、`confirm` 同时需要 token 与确认标志、token 不再匹配时被拒、候选可被拒绝且不触碰字典。
+
+分层详尽释义的回归测试：
+
+- `test_explanation.py`：词汇与评测不变量对齐、规则句在状态变化词处拆成条件与结果、状态变化缺触发方式时成为 gap、数值与比较符原样保留（`≤` 保留、`<` 不改写、无单位记 `missing_unit`）、只有问题问目的时才列 `missing_design_intent`、记法只在 confirmed 范围内展开而未知符号保持原词、被拒绝的读法写成「装饰」而非事实、关系措辞是受控模板且不含因果词、缩进只出 hint、跨文档同主题不同值形成 conflict group（同文档不算冲突）、三档 profile 都保留冲突、三档都不丢证据状态/定位/不确定性、输入原文只在显式请求时才随 Atom 返回、coverage scope 逐条声明省略与未覆盖、分页覆盖每个 Atom 恰好一次、句子与 Atom 双向映射、`explanation_id` 随输入变化、Source-as-Data 提示注入不改变 Profile 与证据规则、润色器只能改写措辞（改数字被拒、抛异常回退）、以及没有来源的 Atom 被隔离并产生 Structured Uncertainty。
+- `test_mcp_explanation.py`：两个工具出现在 MCP 工具表上；单个单元的释义与证据包里的 `sections.explanation` 是同一份（同样的 `explanation_id` 与 Atom 文本）；一个问题的三档释义都保留同一个 conflict group 且顶层 `conflicts` 暴露；`page_size=1` 逐页翻完不重复也不遗漏 Atom；来源里的提示注入样本文本不改变 Profile，只产生 `security.warnings`；未知 Profile 在任何查找之前就被拒绝（命中与否都一样）、不存在的 unit 报 `not_found`、没有命中的问题返回空解释与下一步建议。

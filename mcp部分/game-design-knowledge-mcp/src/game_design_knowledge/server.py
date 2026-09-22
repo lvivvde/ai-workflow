@@ -19,6 +19,7 @@ from .freshness import freshness_report
 from .capabilities import CapabilityRuntime
 from .evidence_package import (
     ASSET_REFERENCE_BOUNDARY,
+    PACKAGE_SECTIONS,
     asset_content,
     display_locator,
     evidence_package,
@@ -28,6 +29,15 @@ from .evidence_package import (
     image_transcription,
     resolve_asset_reference,
     source_reference,
+)
+from .explanation import (
+    DEFAULT_LANGUAGE,
+    DEFAULT_PAGE_SIZE,
+    DEFAULT_PROFILE,
+    EXPLANATION_BOUNDARY,
+    EXPLANATION_PROFILES,
+    EXPLANATION_VERSION,
+    build_explanation,
 )
 from .index_revisions import (
     degradation_summary,
@@ -1008,6 +1018,7 @@ def get_evidence_package(
     """
 
     database_path = _database_path()
+    notation = _durable_state().read_notation()
     with SharedIndexRead(database_path) as index:
         return index.complete(
             evidence_package(
@@ -1016,6 +1027,7 @@ def get_evidence_package(
                 sections=sections,
                 limit=limit,
                 cursor=cursor,
+                notation=notation,
             )
         )
 
@@ -1029,10 +1041,15 @@ def get_evidence_packages(
     """Return several evidence packages, keeping every one that resolved."""
 
     database_path = _database_path()
+    notation = _durable_state().read_notation()
     with SharedIndexRead(database_path) as index:
         return index.complete(
             evidence_packages(
-                index, unit_ids=unit_ids, sections=sections, limit=limit
+                index,
+                unit_ids=unit_ids,
+                sections=sections,
+                limit=limit,
+                notation=notation,
             )
         )
 
@@ -1167,6 +1184,129 @@ def rebuild_shared_index(confirmed: bool = False) -> dict[str, object]:
         index_directory / "knowledge.sqlite"
     )
     return result
+
+
+@mcp.tool()
+def explain_evidence(
+    unit_id: str,
+    profile: str = DEFAULT_PROFILE,
+    language: str = DEFAULT_LANGUAGE,
+    cursor: str = "",
+    page_size: int = DEFAULT_PAGE_SIZE,
+    include_source_language: bool = False,
+) -> dict[str, object]:
+    """Explain one retrieval unit as Brief, Standard, or Full (the default).
+
+    The explanation is built from the same layers ``get_evidence_package``
+    returns, so the two cannot disagree about a unit.
+    """
+
+    _check_profile(profile)
+    database_path = _database_path()
+    notation = _durable_state().read_notation()
+    with SharedIndexRead(database_path) as index:
+        package = evidence_package(
+            index,
+            unit_id=unit_id,
+            sections=_layer_sections(),
+            limit=EXPLANATION_UNIT_PAGE_LIMIT,
+            notation=notation,
+        )
+        return index.complete(
+            _explanation_payload(
+                package,
+                profile=profile,
+                language=language,
+                cursor=cursor,
+                page_size=page_size,
+                include_source_language=include_source_language,
+                notation=notation,
+            )
+        )
+
+
+@mcp.tool()
+def explain_query(
+    query: str,
+    document_type: str = "",
+    profile: str = DEFAULT_PROFILE,
+    language: str = DEFAULT_LANGUAGE,
+    unit_limit: int = 5,
+    cursor: str = "",
+    page_size: int = DEFAULT_PAGE_SIZE,
+    include_source_language: bool = False,
+) -> dict[str, object]:
+    """Explain what the index says about one question, conflicts included.
+
+    Coverage is claimed inside the returned Coverage Scope only: the units that
+    were retrieved, the layers they could serve, and the profile's own sections.
+    """
+
+    query = str(query or "").strip()
+    if not query:
+        raise ValueError("query must not be empty")
+    if unit_limit < 1 or unit_limit > MAX_EXPLANATION_UNITS:
+        raise ValueError(f"unit_limit must be between 1 and {MAX_EXPLANATION_UNITS}")
+    _check_profile(profile)
+    database_path = _database_path()
+    notation = _durable_state().read_notation()
+    with SharedIndexRead(database_path) as index:
+        selection = _explanation_selection(
+            index,
+            query=query,
+            document_type=document_type or None,
+            unit_limit=unit_limit,
+            notation=notation,
+        )
+        if not selection["units"]:
+            return index.complete(
+                {
+                    "status": "not_found",
+                    "schema_version": EXPLANATION_VERSION,
+                    "query": query,
+                    "explanation": None,
+                    "conflicts": [],
+                    "retrieval": selection["retrieval"],
+                    "coverage_scope": {
+                        "target": query,
+                        "question": query,
+                        "profile": profile,
+                        "language": language,
+                        "filters": {"document_type": document_type or None},
+                        "units": [],
+                        "not_covered": [],
+                        "boundary": EXPLANATION_BOUNDARY,
+                    },
+                    "next_steps": [
+                        "确认目标文档已经建立索引（index_status）。",
+                        "换一个更具体的关键词，或先用 search_evidence 找到证据再按 unit_id 解释。",
+                    ],
+                    "boundary": EXPLANATION_BOUNDARY,
+                }
+            )
+        explanation = build_explanation(
+            units=selection["units"],
+            question=query,
+            profile=profile,
+            language=language,
+            cursor=cursor,
+            page_size=page_size,
+            include_source_language=include_source_language,
+            notation=notation,
+            filters={"document_type": document_type or None},
+            not_retrieved=selection["not_retrieved"],
+        )
+        return index.complete(
+            {
+                "status": explanation["status"],
+                "schema_version": EXPLANATION_VERSION,
+                "query": query,
+                "explanation": explanation,
+                "conflicts": explanation["conflict_refs"],
+                "retrieval": selection["retrieval"],
+                "boundary": EXPLANATION_BOUNDARY,
+            }
+        )
 
 
 def _review_intent(
@@ -1409,6 +1549,247 @@ def _database_path() -> Path:
     if not database_path.is_file():
         raise FileNotFoundError(f"Knowledge index does not exist: {database_path}")
     return database_path
+
+
+EXPLANATION_UNIT_PAGE_LIMIT = 200
+MAX_EXPLANATION_UNITS = 20
+
+
+def _check_profile(profile: str) -> None:
+    """Refuse an unknown profile up front, before any lookup can hide it."""
+
+    if profile not in EXPLANATION_PROFILES:
+        raise ValueError(
+            f"profile must be one of {list(EXPLANATION_PROFILES)}, not {profile!r}"
+        )
+
+
+def _layer_sections() -> list[str]:
+    """Every layer except the explanation, which is rebuilt for the profile."""
+
+    return [section for section in PACKAGE_SECTIONS if section != "explanation"]
+
+
+def _pagination_note(unit_id: str) -> dict[str, object]:
+    """Say when one unit carried more items than a single read can hold."""
+
+    return {
+        "kind": "pagination",
+        "target": unit_id,
+        "reason": f"unit_items_beyond_{EXPLANATION_UNIT_PAGE_LIMIT}",
+    }
+
+
+def _unit_from_package(package: dict[str, object]) -> dict[str, object]:
+    return {
+        "unit_id": package.get("unit_id"),
+        "unit_type": (package.get("retrieval_unit") or {}).get("unit_type"),
+        "source_reference": package.get("source_reference"),
+        "display_locator": package.get("display_locator"),
+        "sections": package.get("sections"),
+        "unavailable": package.get("unavailable"),
+    }
+
+
+def _explanation_payload(
+    package: dict[str, object],
+    *,
+    profile: str,
+    language: str,
+    cursor: str,
+    page_size: int,
+    include_source_language: bool,
+    notation: dict[str, object] | None,
+    question: str = "",
+    filters: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Explain one package, or report why there is nothing to explain."""
+
+    if str(package.get("status")) == "not_found":
+        return {
+            "status": "not_found",
+            "schema_version": EXPLANATION_VERSION,
+            "unit_id": package.get("unit_id"),
+            "explanation": None,
+            "unavailable": package.get("unavailable"),
+            "conflicts": [],
+            "limitations": [
+                "这个 retrieval unit 不在索引里，所以没有任何一层可以解释。",
+            ],
+            "boundary": EXPLANATION_BOUNDARY,
+        }
+    explanation = build_explanation(
+        units=[_unit_from_package(package)],
+        question=question,
+        profile=profile,
+        language=language,
+        cursor=cursor,
+        page_size=page_size,
+        include_source_language=include_source_language,
+        notation=notation,
+        filters=filters,
+        not_retrieved=(
+            [_pagination_note(str(package.get("unit_id") or ""))]
+            if (package.get("page") or {}).get("has_more")
+            else []
+        ),
+    )
+    return {
+        "status": explanation["status"],
+        "schema_version": EXPLANATION_VERSION,
+        "unit_id": package.get("unit_id"),
+        "retrieval_unit": package.get("retrieval_unit"),
+        "source_reference": package.get("source_reference"),
+        "display_locator": package.get("display_locator"),
+        "profile": explanation["profile"],
+        "language": explanation["language"],
+        "explanation": explanation,
+        # Conflict groups are repeated at the top level, the way every other
+        # reading tool reports them, so a caller never has to dig for the fact
+        # that two sources disagree.
+        "conflicts": explanation["conflict_refs"],
+        "provenance": package.get("provenance"),
+        "boundary": EXPLANATION_BOUNDARY,
+    }
+
+
+def _explanation_selection(
+    index: Any,
+    *,
+    query: str,
+    document_type: str | None,
+    unit_limit: int,
+    notation: dict[str, object] | None,
+) -> dict[str, object]:
+    """Pick the units a question covers, and say which channels found them."""
+
+    phrase = f'"{query.replace(chr(34), chr(34) * 2)}"'
+    channels: list[dict[str, object]] = []
+    rows = index.fetchall(
+        """
+        SELECT e.id AS evidence_id
+        FROM evidence_fts
+        JOIN evidence AS e ON e.id = evidence_fts.evidence_id
+        JOIN documents AS d ON d.id = e.document_id
+        WHERE evidence_fts MATCH ?
+          AND (? IS NULL OR d.document_type = ?)
+        ORDER BY bm25(evidence_fts), e.id
+        LIMIT ?
+        """,
+        (phrase, document_type, document_type, unit_limit),
+    )
+    lexical = "matched" if rows else "no_match"
+    if not rows and len(query) < 3:
+        rows = index.fetchall(
+            """
+            SELECT e.id AS evidence_id
+            FROM evidence AS e
+            JOIN documents AS d ON d.id = e.document_id
+            WHERE instr(e.text, ?) > 0
+              AND (? IS NULL OR d.document_type = ?)
+            ORDER BY e.id
+            LIMIT ?
+            """,
+            (query, document_type, document_type, unit_limit),
+        )
+        lexical = "substring" if rows else "no_match"
+    channels.append(
+        {
+            "channel": "lexical",
+            "status": lexical,
+            "hits": len(rows),
+            "detail": "FTS5 短语匹配" if lexical == "matched" else "词面回退或未命中",
+        }
+    )
+    image_rows = index.fetchall(
+        """
+        SELECT i.id AS image_id
+        FROM images AS i
+        JOIN documents AS d ON d.id = i.document_id
+        WHERE (? IS NULL OR d.document_type = ?)
+          AND (
+            instr(COALESCE(i.heading, ''), ?) > 0
+            OR instr(COALESCE(i.ocr_text, ''), ?) > 0
+            OR EXISTS (
+                SELECT 1 FROM ocr_regions AS r
+                WHERE r.image_id = i.id AND instr(r.text_raw, ?) > 0
+            )
+          )
+        ORDER BY i.id
+        LIMIT ?
+        """,
+        (document_type, document_type, query, query, query, unit_limit),
+    )
+    channels.append(
+        {
+            "channel": "image_text",
+            "status": "matched" if image_rows else "no_match",
+            "hits": len(image_rows),
+            "detail": "图片标题、粗粒度 OCR 文本与区域转录的词面匹配",
+        }
+    )
+    unit_ids = [f"evidence:{row['evidence_id']}" for row in rows]
+    unit_ids.extend(f"image:{row['image_id']}" for row in image_rows)
+    unit_ids = unit_ids[:unit_limit]
+
+    units: list[dict[str, object]] = []
+    skipped: list[dict[str, object]] = []
+    not_retrieved: list[dict[str, object]] = []
+    for unit_id in unit_ids:
+        package = evidence_package(
+            index,
+            unit_id=unit_id,
+            sections=_layer_sections(),
+            limit=EXPLANATION_UNIT_PAGE_LIMIT,
+            notation=notation,
+        )
+        if str(package.get("status")) != "found":
+            skipped.append(
+                {
+                    "unit_id": unit_id,
+                    "reason": "unit_not_found",
+                    "detail": "检索命中在建立解释时已不可读。",
+                }
+            )
+            continue
+        if (package.get("page") or {}).get("has_more"):
+            # The explanation is built from one page of the unit: say so rather
+            # than let a very large unit look fully covered.
+            not_retrieved.append(_pagination_note(unit_id))
+        units.append(_unit_from_package(package))
+
+    if len(unit_ids) >= unit_limit:
+        not_retrieved.append(
+            {
+                "kind": "retrieval",
+                "target": "units_beyond_limit",
+                "reason": f"unit_limit={unit_limit}",
+            }
+        )
+    if lexical == "no_match" and channels[1]["hits"] == 0:
+        not_retrieved.append(
+            {
+                "kind": "retrieval",
+                "target": "all_channels",
+                "reason": "no_candidate_passed",
+            }
+        )
+    return {
+        "units": units,
+        "not_retrieved": not_retrieved,
+        "retrieval": {
+            "query": query,
+            "document_type": document_type,
+            "unit_limit": unit_limit,
+            "unit_ids": unit_ids,
+            "returned_units": len(units),
+            "skipped": skipped,
+            "channels": channels,
+            "boundary": (
+                "检索只负责选出解释范围；每个结论仍回到被选中的检索单位与其定位。"
+            ),
+        },
+    }
 
 
 def _project_root() -> Path:

@@ -542,7 +542,7 @@ def _mode_layers(
         _source_import_layer(mode, build_report, build_seconds, index_status, sample_ids),
         _ocr_layer(mode, index_status, sample_ids),
         *_layout_layers(mode, index_status, sample_ids),
-        *_absent_capability_layers(mode),
+        *_unmeasured_capability_layers(mode),
         _statement_layer(mode, items),
         _retrieval_layer(mode, items),
         _conflict_layer(mode, items),
@@ -714,14 +714,25 @@ def _layout_layers(
     ]
 
 
-def _absent_capability_layers(mode: str) -> list[LayerResult]:
-    """Layers whose capability does not exist yet are reported as unavailable."""
+def _unmeasured_capability_layers(mode: str) -> list[LayerResult]:
+    """Served layers no annotated sample can score yet stay `unavailable`.
+
+    Both of these are real capabilities of this build; what is missing is a
+    labelled corpus, and the note says exactly that instead of claiming the
+    capability is absent.
+    """
 
     reasons = {
         "notation_resolution": (
-            "No designer-notation capability is reported by this build."
+            "Designer notation is resolved (designer-notation-v1, confirmed "
+            "entries only); no annotated notation sample exists yet, so this "
+            "layer is not measured."
         ),
-        "explanation": "No explanation profile is served by this build.",
+        "explanation": (
+            "Brief/Standard/Full explanations are served (explanation-v1); no "
+            "annotated explanation sample exists yet, so this layer is not "
+            "measured."
+        ),
     }
     return [
         LayerResult(

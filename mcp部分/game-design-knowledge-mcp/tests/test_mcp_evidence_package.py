@@ -67,6 +67,24 @@ def flow_observation() -> RegionObservation:
     )
 
 
+def arrow_run_observation() -> RegionObservation:
+    """Two arrow blocks in a row: geometry that may never be confirmed."""
+
+    return RegionObservation(
+        engine="rapidocr",
+        engine_version="1.3.24",
+        tier="core",
+        provider_status="succeeded",
+        regions=(
+            region(0, "Start round", 100.0, 0.0),
+            region(1, "↓", 135.0, 30.0),
+            region(2, "↓", 135.0, 60.0),
+            region(3, "Score a point", 100.0, 90.0),
+        ),
+        language="eng",
+    )
+
+
 class EvidencePackageMcpTests(unittest.TestCase):
     def setUp(self) -> None:
         self._temporary = tempfile.TemporaryDirectory()
@@ -128,11 +146,24 @@ class EvidencePackageMcpTests(unittest.TestCase):
         )
 
         # A quoted document block has no image layer, and saying so is not the
-        # same as saying the picture was empty.
+        # same as saying the picture was empty. The explanation layer, though,
+        # is built from the layers this unit does carry, so it is served rather
+        # than named as missing.
         codes = {entry["code"] for entry in package["unavailable"]}
         self.assertIn("unit_is_not_an_image", codes)
-        self.assertIn("no_explanation_profile", codes)
+        self.assertNotIn("no_explanation_profile", codes)
         self.assertEqual(package["sections"]["transcription"], [])
+        explanation = package["sections"]["explanation"]
+        self.assertEqual(len(explanation), 1)
+        self.assertEqual(explanation[0]["kind"], "explanation")
+        self.assertEqual(explanation[0]["expand"]["tool"], "explain_evidence")
+        self.assertEqual(
+            explanation[0]["expand"]["arguments"]["unit_id"], package["unit_id"]
+        )
+        self.assertTrue(explanation[0]["explanation"]["atoms"])
+        self.assertIn(
+            PARAGRAPH, " ".join(atom["text"] for atom in explanation[0]["explanation"]["atoms"])
+        )
 
         provenance = package["provenance"]
         self.assertTrue(provenance["source_revision_id"].startswith("src-"))
@@ -214,17 +245,20 @@ class EvidencePackageMcpTests(unittest.TestCase):
 
         self.assertGreater(total, 2)
         self.assertEqual(len(seen), total)
-        uncertainties = 0
         for item in seen:
             if item["kind"] == "uncertainty":
                 # An uncertainty names the layer it is about; it is not a fact
                 # read out of the source, so it has no source reference to lose.
                 self.assertTrue(item["code"])
-                uncertainties += 1
                 continue
             self.assertIn("source_reference", item)
             self.assertTrue(item["source_reference"]["source_revision_id"])
-        self.assertGreater(uncertainties, 0)
+        # The explanation layer's own uncertainties live inside its atoms; at
+        # this level the package only lists the ones a layer had to hedge about,
+        # and this index has none. Its explanation is present all the same.
+        explanation = [item for item in seen if item["kind"] == "explanation"]
+        self.assertEqual(len(explanation), 1)
+        self.assertEqual(explanation[0]["expand"]["tool"], "explain_evidence")
         by_kind = Counter(item["kind"] for item in seen)
         self.assertEqual(by_kind["ocr_region"], 3)
         self.assertEqual(by_kind["layout_element"], 3)
@@ -236,6 +270,51 @@ class EvidencePackageMcpTests(unittest.TestCase):
                 if count != 1 and kind not in {"ocr_region", "layout_element"}
             ],
             [],
+        )
+
+    def test_an_uncertainty_names_its_layer_and_not_a_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            index_directory = root / ".index" / "knowledge"
+            write_docx_with_image(
+                root / "docs" / "docx" / "ambiguous.docx",
+                PARAGRAPH,
+                png_bytes(),
+            )
+            index_documents(
+                root,
+                index_directory,
+                ocr_engine="rapidocr",
+                ocr_providers={"rapidocr": lambda path: arrow_run_observation()},
+            )
+
+            previous_index = os.environ.get("GAME_DESIGN_INDEX_DIR")
+            previous_root = os.environ.get("GAME_DESIGN_PROJECT_ROOT")
+            os.environ["GAME_DESIGN_INDEX_DIR"] = str(index_directory)
+            os.environ["GAME_DESIGN_PROJECT_ROOT"] = str(root)
+            try:
+                package = self._call("get_evidence_package", {"unit_id": "image:1"})
+            finally:
+                self._restore_pair(previous_index, previous_root)
+
+        uncertainties = [
+            item
+            for item in package["sections"]["uncertainties"]
+            if item["kind"] == "uncertainty"
+        ]
+        self.assertTrue(uncertainties)
+        for item in uncertainties:
+            self.assertTrue(item["code"])
+            self.assertTrue(item["section"])
+            # An uncertainty is about a layer, not a fact read out of the
+            # source, so it names that layer instead of borrowing a locator.
+            self.assertNotIn("source_reference", item)
+        self.assertEqual(
+            sorted(
+                relation["relation"]["status"]
+                for relation in package["sections"]["notation"]
+            ),
+            ["candidate", "candidate"],
         )
 
     def test_v2_metadata_is_opt_in_and_the_v1_hit_is_unchanged(self) -> None:

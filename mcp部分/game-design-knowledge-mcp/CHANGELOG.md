@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- 新增 V2 分层证据包：`get_evidence_package(unit_id)` / `get_evidence_packages(unit_ids)` 以 `evidence:<id>`、`image:<id>` 为锚点，把 source、statement、transcription、visual_interpretation、notation、explanation、uncertainties 分层返回，并整份带上 provenance 与逐层 `unavailable`；每个派生条目都解析到 revision-aware Source Reference 与原始区域（含 bbox）。
+- 新增受控资产访问 `get_asset(asset_reference)`：只接受索引签发的 `asset-<32 位十六进制>` 引用，任何文件路径一律 `not_found`；引用由索引目录名与索引内相对路径推导，可选内联 base64 并同时报告读取到的 SHA256 与 `sha256_matches_index`。
+- 新增 `get_processing_manifest()`：返回处理运行清单、逐 stage 尝试摘要与统一的 degradation 事实（回退 stage、降级 stage、被拒 stage、原因码计数），与 `index_status.processing` 同源。
+- 大型证据包稳定分页：`limit`/`cursor` 在一条按层展开的扁平条目序列上推进，页边界不会拆断陈述与其来源的关联；批量请求部分成功时保留已取到的包并逐条说明 `not_found`/`invalid`（Partial Evidence Response）。
+- 独立 PNG/JPEG 导入闭环：`plan_document_import`/`import_documents` 接受图片并以 `source_type=standalone_image` 预览，落盘到 `docs/png|jpg|jpeg/`，登记为 `document_type=image`（`relationship_id=standalone`）的文档；沿用预览确认、禁止覆盖、失败回滚与原子索引发布。
+- `search_evidence` 新增显式开关 `include_v2_metadata`（默认 `false`）：开启后每条命中附带紧凑 Hydrated Evidence Hit（unit_id、source_reference、display_locator、section_names 与展开提示），默认响应不含任何 V2 字段，V1 契约不变。
 - 交付视觉布局层：从 OCR 区域与几何构建 Visual Elements、行/列、`depth_hint` 与候选阅读顺序，并实现纵向箭头规则（独占箭头块、唯一上下端点、顺序相邻）确认 `next_step`；分支、连续箭头、缺失端点、跨容器与重叠布局一律输出 candidate 并写明原因。
 - 每条 Structural Relation 保存端点、支撑区域、几何依据、规则版本与 `claim_boundary`，并**分列**保存 `geometry_confidence` 与 `ocr_confidence`；缩进只记录 `depth_hint`，永不建立父子关系，输出不声称因果、运行时依赖或作者目的。
 - `layout` 与 `structure_relations` 从“声明但未实现”变为真实 stage：规则集版本升为 `layout-regions-v1` / `flow-arrow-v1`，两者都归 core（不依赖 `enhanced_ocr`/`visual` 包），并记录 `visual_model_required`、`visual_pack_status` 与 `visual_candidates`；实际计算在 `retrieval_projection` 内完成，因为没有 OCR 引擎时 stage 报 `no_ocr_engine` 而不是 `stage_not_implemented`。

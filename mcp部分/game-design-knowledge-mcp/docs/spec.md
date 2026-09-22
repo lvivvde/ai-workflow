@@ -61,7 +61,8 @@ index_status
 新增：
 
 ```text
-search_evidence(query, document_type=None, evidence_type=None, limit=20)
+search_evidence(query, document_type=None, evidence_type=None, limit=20,
+                include_v2_metadata=False)
 get_evidence(evidence_id, context_before=1, context_after=1)
 find_feature(name)
 get_feature_evidence(name, include_documents=True, include_configs=True, include_images=True)
@@ -72,6 +73,17 @@ import_documents(source_paths, plan_token, destination="docs", operation="copy",
 rebuild_shared_index(confirmed=False)
 capability_status()
 ```
+
+证据包与资产：
+
+```text
+get_evidence_package(unit_id, sections=None, limit=20, cursor="")
+get_evidence_packages(unit_ids, sections=None, limit=20)
+get_asset(asset_reference, include_content=False)
+get_processing_manifest()
+```
+
+`get_evidence_package` 以 `evidence:<id>` / `image:<id>` 为锚点，把 source、statement、transcription、visual_interpretation、notation、explanation、uncertainties 分层返回，并整份带上 provenance 与逐层 unavailable；`get_asset` 只接受索引签发的 Asset Reference，不接受任何文件路径；`get_processing_manifest` 返回运行清单、逐 stage 尝试与 degradation 事实。四个工具都是只读新增，V1 工具在未显式请求 V2 元数据时字段与默认行为不变，详见 [`evidence-package.md`](evidence-package.md)。
 
 三个写入工具遵循 [`import-policy.md`](import-policy.md)：预览不写入；导入必须携带未失效的计划令牌和明确确认；目标目录固定且禁止覆盖；建库失败时恢复文件并保留旧索引。
 

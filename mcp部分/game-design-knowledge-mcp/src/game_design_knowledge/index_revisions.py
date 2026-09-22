@@ -368,6 +368,44 @@ def stage_attempt_summary(database_path: Path) -> dict[str, Any]:
     }
 
 
+#: Execution states that mean the stage did not deliver what it promises.
+DEGRADED_EXECUTION_STATUSES = frozenset({"unavailable", "partial", "failed"})
+
+
+def degradation_summary(database_path: Path, *, limit: int = 5000) -> dict[str, Any]:
+    """How this build fell back, skipped, or rejected a stage.
+
+    Every V2 tool reports the same degradation facts, so a reader can tell a
+    degraded answer from a complete one without comparing two payloads.
+    """
+
+    attempts = stage_attempts(database_path, limit=limit)
+    reason_codes: dict[str, int] = {}
+    fallback_stages: set[str] = set()
+    degraded_stages: set[str] = set()
+    rejected_stages: set[str] = set()
+    for attempt in attempts:
+        code = str(attempt["reason_code"] or "")
+        if code:
+            reason_codes[code] = reason_codes.get(code, 0) + 1
+        if attempt["fallback_used"]:
+            fallback_stages.add(str(attempt["stage"]))
+        if attempt["execution_status"] in DEGRADED_EXECUTION_STATUSES:
+            degraded_stages.add(str(attempt["stage"]))
+        if attempt["quality_status"] == "rejected":
+            rejected_stages.add(str(attempt["stage"]))
+    return {
+        "recorded_attempts": len(attempts),
+        "fallback_stages": sorted(fallback_stages),
+        "degraded_stages": sorted(degraded_stages),
+        "rejected_stages": sorted(rejected_stages),
+        "reason_codes": dict(sorted(reason_codes.items())),
+        "degraded": bool(
+            fallback_stages or degraded_stages or rejected_stages or reason_codes
+        ),
+    }
+
+
 def _attempt_row(row: sqlite3.Row) -> dict[str, Any]:
     return {
         "attempt_id": str(row["attempt_id"]),
@@ -420,6 +458,7 @@ def _now() -> str:
 
 __all__ = [
     "builds",
+    "degradation_summary",
     "document_revisions",
     "latest_build",
     "parse_revisions_by_document",

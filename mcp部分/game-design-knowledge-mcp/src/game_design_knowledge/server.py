@@ -15,9 +15,23 @@ from .ingest import (
 )
 from .freshness import freshness_report
 from .capabilities import CapabilityRuntime
-from .flow_notation import CLAIM_BOUNDARY
-from .index_revisions import processing_manifest, stage_attempt_summary
-from .ocr_normalization import extract_critical_tokens
+from .evidence_package import (
+    ASSET_REFERENCE_BOUNDARY,
+    asset_content,
+    display_locator,
+    evidence_package,
+    evidence_packages,
+    hydrated_hit,
+    image_layout,
+    image_transcription,
+    resolve_asset_reference,
+    source_reference,
+)
+from .index_revisions import (
+    degradation_summary,
+    processing_manifest,
+    stage_attempt_summary,
+)
 from .policy import EVIDENCE_POLICY
 from .shared_index import SharedIndexRead, index_status_for_database
 
@@ -139,8 +153,15 @@ def search_evidence(
     document_type: str | None = None,
     evidence_type: str | None = None,
     limit: int = 20,
+    include_v2_metadata: bool = False,
 ) -> dict[str, object]:
-    """Search indexed document facts; never add inferred or unindexed claims."""
+    """Search indexed document facts; never add inferred or unindexed claims.
+
+    ``include_v2_metadata`` adds a compact hydrated hit per result — the
+    retrieval unit, its revision-aware source reference, and its locator — which
+    the caller expands with ``get_evidence_package``. Without it the response
+    keeps the V1 shape exactly.
+    """
     query = query.strip()
     if not query:
         raise ValueError("query must not be empty")
@@ -161,6 +182,10 @@ def search_evidence(
                 e.section_path,
                 e.locator,
                 b.ordinal AS block_ordinal,
+                d.source_sha256,
+                d.logical_document_id,
+                d.source_revision_id,
+                d.parse_revision_id,
                 bm25(evidence_fts) AS score
             FROM evidence_fts
             JOIN evidence AS e ON e.id = evidence_fts.evidence_id
@@ -195,6 +220,10 @@ def search_evidence(
                     e.section_path,
                     e.locator,
                     b.ordinal AS block_ordinal,
+                    d.source_sha256,
+                    d.logical_document_id,
+                    d.source_revision_id,
+                    d.parse_revision_id,
                     0.0 AS score
                 FROM evidence AS e
                 JOIN documents AS d ON d.id = e.document_id
@@ -222,8 +251,39 @@ def search_evidence(
         for row in rows:
             item = dict(row)
             index.resolve_result_source(item)
+            revisions = {
+                key: item.pop(key)
+                for key in (
+                    "source_sha256",
+                    "logical_document_id",
+                    "source_revision_id",
+                    "parse_revision_id",
+                )
+            }
             item["section_path"] = json.loads(item["section_path"])
             item["locator"] = json.loads(item["locator"])
+            if include_v2_metadata:
+                item["v2"] = hydrated_hit(
+                    unit_id=f"evidence:{item['evidence_id']}",
+                    unit_type=str(item["evidence_type"]),
+                    reference=source_reference(
+                        logical_document_id=revisions["logical_document_id"],
+                        source_revision_id=revisions["source_revision_id"],
+                        parse_revision_id=revisions["parse_revision_id"],
+                        path=str(item["source_document"]),
+                        document_type=str(item["document_type"]),
+                        source_sha256=str(revisions["source_sha256"]),
+                        locator=item["locator"],
+                        section_path=item["section_path"],
+                        authority="document",
+                    ),
+                    display=display_locator(
+                        str(item["document_type"]),
+                        item["locator"],
+                        section_path=item["section_path"],
+                    ),
+                    authority="document",
+                )
             evidence.append(item)
         return index.complete(
             {
@@ -920,198 +980,119 @@ def get_image_context(image_id: int) -> dict[str, object]:
         result["asset_path"] = str(
             (database_path.parent / str(result["asset_path"])).resolve()
         )
-        result["ocr"] = _image_ocr_detail(index, image_id)
-        result["layout"] = _image_layout_detail(index, image_id)
+        result["ocr"] = image_transcription(index, image_id)
+        result["layout"] = image_layout(index, image_id)
         return index.complete(result)
 
 
-def _image_ocr_detail(index: SharedIndexRead, image_id: int) -> dict[str, object] | None:
-    """Region-level OCR for one image, or ``None`` on an index that predates it.
+@mcp.tool()
+def get_evidence_package(
+    unit_id: str,
+    sections: list[str] | None = None,
+    limit: int = 20,
+    cursor: str = "",
+) -> dict[str, object]:
+    """Return one retrieval unit as separate layers, paged by item.
 
-    The transcription layer is returned whole -- raw text, the suggestion
-    proposed for each region, and the three confidences separately -- because a
-    caller needs to see *why* a reading is uncertain, and because an OCR
-    transcription never becomes source evidence on its own.
+    ``unit_id`` is ``evidence:<id>`` or ``image:<id>``. Every derived item
+    resolves to a revision-aware source reference and the region it came from.
     """
 
-    try:
-        run = index.fetchone(
-            """
-            SELECT id, requested_engine, engine, engine_version, tier,
-                   fallback_used, execution_status, quality_status, reason_code,
-                   detail, evidence_state, language, reading_order_source,
-                   region_count, reason_chain, duration_ms
-            FROM ocr_runs
-            WHERE image_id = ?
-            ORDER BY id DESC
-            LIMIT 1
-            """,
-            (image_id,),
+    database_path = _database_path()
+    with SharedIndexRead(database_path) as index:
+        return index.complete(
+            evidence_package(
+                index,
+                unit_id=unit_id,
+                sections=sections,
+                limit=limit,
+                cursor=cursor,
+            )
         )
-    except sqlite3.OperationalError:
-        return None
-    if run is None:
-        return None
-    regions = index.fetchall(
-        """
-        SELECT r.region_index, r.reading_order, r.bbox, r.text_raw,
-               r.text_confidence, r.region_confidence, r.key_mark_confidence,
-               r.language, n.normalized_text, n.changes, n.ruleset_version
-        FROM ocr_regions AS r
-        LEFT JOIN ocr_normalizations AS n ON n.region_id = r.id
-        WHERE r.run_id = ?
-        ORDER BY r.reading_order
-        """,
-        (int(run["id"]),),
-    )
-    payload: dict[str, object] = {
-        "run": {
-            "requested_engine": run["requested_engine"],
-            "engine": run["engine"],
-            "engine_version": run["engine_version"],
-            "tier": run["tier"],
-            "fallback_used": bool(run["fallback_used"]),
-            "execution_status": run["execution_status"],
-            "quality_status": run["quality_status"],
-            "reason_code": run["reason_code"],
-            "detail": run["detail"],
-            "evidence_state": run["evidence_state"],
-            "language": run["language"],
-            "reading_order_source": run["reading_order_source"],
-            "duration_ms": run["duration_ms"],
-            "reason_chain": json.loads(run["reason_chain"] or "[]"),
-        },
-        "regions": [
-            {
-                "region_index": region["region_index"],
-                "reading_order": region["reading_order"],
-                "bbox": json.loads(region["bbox"]) if region["bbox"] else None,
-                "text": region["text_raw"],
-                "text_confidence": region["text_confidence"],
-                "region_confidence": region["region_confidence"],
-                "key_mark_confidence": region["key_mark_confidence"],
-                "language": region["language"],
-                "critical_tokens": [
-                    token.as_payload()
-                    for token in extract_critical_tokens(region["text_raw"])
-                ],
-                "normalization_suggestion": (
-                    {
-                        "suggestion_only": True,
-                        "ruleset_version": region["ruleset_version"],
-                        "normalized": region["normalized_text"],
-                        "changes": json.loads(region["changes"] or "[]"),
-                    }
-                    if region["normalized_text"] is not None
-                    else None
-                ),
-            }
-            for region in regions
-        ],
-        "evidence_boundary": (
-            "OCR output stays a transcription; it is not source evidence and is "
-            "only upgraded by a human confirmation or a source text layer."
-        ),
-    }
-    return payload
 
 
-def _image_layout_detail(
-    index: SharedIndexRead, image_id: int
-) -> dict[str, object] | None:
-    """Reading order and structural relations for one image.
+@mcp.tool()
+def get_evidence_packages(
+    unit_ids: list[str],
+    sections: list[str] | None = None,
+    limit: int = 20,
+) -> dict[str, object]:
+    """Return several evidence packages, keeping every one that resolved."""
 
-    Returned whole for the same reason the regions are: a caller has to see the
-    geometry basis, the rule version, and *two* confidences -- the layout's and
-    the transcription's -- to judge a relation. Every relation also carries the
-    claim boundary, because "an arrow points down to this block" is a statement
-    about the picture and nothing more.
-    """
-
-    try:
-        run = index.fetchone(
-            """
-            SELECT id, ruleset_version, order_source, column_count, element_count,
-                   geometry_confidence, uncertainty, detail
-            FROM layout_runs
-            WHERE image_id = ?
-            ORDER BY id DESC
-            LIMIT 1
-            """,
-            (image_id,),
+    database_path = _database_path()
+    with SharedIndexRead(database_path) as index:
+        return index.complete(
+            evidence_packages(
+                index, unit_ids=unit_ids, sections=sections, limit=limit
+            )
         )
-    except sqlite3.OperationalError:
-        return None
-    if run is None:
-        return None
-    elements = index.fetchall(
-        """
-        SELECT region_index, kind, direction, reading_order, row_index,
-               column_index, depth_hint, bbox, text_confidence
-        FROM layout_elements
-        WHERE run_id = ?
-        ORDER BY reading_order
-        """,
-        (int(run["id"]),),
-    )
-    relations = index.fetchall(
-        """
-        SELECT kind, status, source_region, target_region, via_regions, direction,
-               geometry_basis, detail, uncertainty, geometry_confidence,
-               ocr_confidence, rule_version
-        FROM structural_relations
-        WHERE run_id = ?
-        ORDER BY id
-        """,
-        (int(run["id"]),),
-    )
-    return {
-        "run": {
-            "ruleset_version": run["ruleset_version"],
-            "order_source": run["order_source"],
-            "column_count": run["column_count"],
-            "element_count": run["element_count"],
-            "geometry_confidence": run["geometry_confidence"],
-            "uncertainty": run["uncertainty"],
-            "detail": run["detail"],
-        },
-        "elements": [
+
+
+@mcp.tool()
+def get_asset(
+    asset_reference: str, include_content: bool = False
+) -> dict[str, object]:
+    """Resolve one asset reference this index issued; paths are refused."""
+
+    database_path = _database_path()
+    with SharedIndexRead(database_path) as index:
+        asset = resolve_asset_reference(index, database_path.parent, asset_reference)
+        if asset is None:
+            return index.complete(
+                {
+                    "status": "not_found",
+                    "asset_reference": str(asset_reference),
+                    "asset": None,
+                    "content": None,
+                    "boundary": ASSET_REFERENCE_BOUNDARY,
+                    "limitations": [
+                        "get_asset only accepts an asset reference this index "
+                        "issued; a file path is never resolved.",
+                    ],
+                }
+            )
+        return index.complete(
             {
-                "region_index": element["region_index"],
-                "kind": element["kind"],
-                "direction": element["direction"],
-                "reading_order": element["reading_order"],
-                "row": element["row_index"],
-                "column": element["column_index"],
-                "depth_hint": element["depth_hint"],
-                "bbox": json.loads(element["bbox"]) if element["bbox"] else None,
-                "text_confidence": element["text_confidence"],
+                "status": "found",
+                "asset_reference": asset["asset_reference"],
+                "asset": {
+                    key: value
+                    for key, value in asset.items()
+                    if key != "asset_reference"
+                },
+                "content": asset_content(asset) if include_content else None,
+                "boundary": ASSET_REFERENCE_BOUNDARY,
             }
-            for element in elements
-        ],
-        "relations": [
+        )
+
+
+@mcp.tool()
+def get_processing_manifest() -> dict[str, object]:
+    """Return the processing manifest, stage attempts, and degradation facts."""
+
+    database_path = _database_path()
+    try:
+        manifest = processing_manifest(database_path)
+        degradation = degradation_summary(database_path)
+    except (sqlite3.DatabaseError, OSError) as error:
+        with SharedIndexRead(database_path) as index:
+            return index.complete(
+                {
+                    "status": "not_recorded",
+                    "manifest": None,
+                    "degradation": None,
+                    "detail": str(error),
+                }
+            )
+    with SharedIndexRead(database_path) as index:
+        return index.complete(
             {
-                "kind": relation["kind"],
-                "status": relation["status"],
-                "source_region": relation["source_region"],
-                "target_region": relation["target_region"],
-                "via_regions": json.loads(relation["via_regions"] or "[]"),
-                "direction": relation["direction"],
-                "geometry_basis": relation["geometry_basis"],
-                "detail": relation["detail"],
-                "uncertainty": relation["uncertainty"],
-                "geometry_confidence": relation["geometry_confidence"],
-                "ocr_confidence": relation["ocr_confidence"],
-                "rule_version": relation["rule_version"],
-                "claim_boundary": CLAIM_BOUNDARY,
+                "status": "recorded" if manifest is not None else "not_recorded",
+                "manifest": manifest,
+                "stages": _processing_for_database(database_path)["attempts"],
+                "degradation": degradation,
             }
-            for relation in relations
-        ],
-        "evidence_boundary": (
-            "Indentation is recorded as a depth hint and never becomes a parent "
-            "or next relation; a confirmed step records visible geometry only."
-        ),
-    }
+        )
 
 
 @mcp.tool()
@@ -1120,7 +1101,7 @@ def plan_document_import(
     destination: str = "docs",
     operation: str = "copy",
 ) -> dict[str, object]:
-    """Preview exact DOCX/XLSX file operations; this tool never writes files."""
+    """Preview exact file operations for DOCX/XLSX/PNG/JPEG; never writes."""
     return build_document_import_plan(
         source_paths, _project_root(), destination, operation
     )
@@ -1134,7 +1115,7 @@ def import_documents(
     operation: str = "copy",
     confirmed: bool = False,
 ) -> dict[str, object]:
-    """After explicit confirmation, import DOCX/XLSX and atomically rebuild SQLite."""
+    """After explicit confirmation, import documents or standalone images."""
     if not confirmed:
         plan = build_document_import_plan(
             source_paths, _project_root(), destination, operation

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- 新增 V2 检索工具 `retrieve_evidence(query, document_type=None, evidence_type=None, limit=20, mode="auto", include_candidates=False, document="")`：保留原查询，只用已确认记法字典与玩法目录别名做确定性扩展，再走 `exact`、`lexical`（FTS5）、`confirmed_alias`、`structures` 等通道，并默认返回 `found`/`not_found`/`partial`/`ambiguous`/`degraded`/`failed` 六态之一。`search_evidence` 作为冻结的 V1 词法检索签名与默认响应一字未改。
+- 检索单位按命名空间隔离：`source_facts`、`image_transcription`、`visual_interpretation` 才算事实，`explanation` 只补匹配理由（`assist_only`、不新增候选），`unconfirmed_candidates` 只在探索模式可搜。图片转写必须通过自己的质量门槛（`accepted` 且 `machine-supported`）才能进入事实查询。
+- 每个候选返回前回读当前索引（Evidence Hydration）：核对 `recorded_sha256`、重新解析 locator、重读区域与结构关系；行已删除、来源哈希变化、locator 或区域不再可读、关系不存在都判为 Untraceable Candidate（`supports_project_fact=false`），不计入 `evidence`。
+- 新增冲突保护：按同一 section、同一 evidence_type、同一 `claim_topic` 组成 scoped claim，跨文档签名不同即输出 `winner=null`、`resolution_state=unresolved` 的 Conflict Group（维度为 `value`/`unit`/`version`/`time`），同文档只报 Potential Conflict Candidate，完全一致则互相印证；`conflict_scan` 通道在 `CONFLICT_SCAN_LIMIT=200` 行内补回未被查询命中的对侧证据，补回项 `matched_query=false` 且不产生任何赢家字段。
+- 检索降级可观察：`hybrid`/`semantic` 无向量能力时显式降级为 `auto` 并给出 `degradation_events` 与 `rebuild_vector_index_recommended`，字典不可读只失去扩展并记入 `retrieval.unavailable_capabilities`，缺命名空间时该通道报 `unavailable` 而其余通道继续作答；`response_meta.vector` 报告 provider/model/index_version 为 `null`，降级状态优先于 `not_found`。
+- 融合保留全部通道证据：同一 retrieval unit 的多路命中合并为一条，逐条保留 `channel`/`match_type`/`rank`/`raw_score`/`reason`，不同通道的原始分数永不相加（`score` 只取最强单分），排序不改变 Evidence Status；explanation.py 导出 `claim_topic` 与 `claim_values` 供 V2 检索复用。
 - 新增分层详尽释义（Explanation Layer）：`explain_evidence(unit_id)` 与 `explain_query(query)` 先用确定性证据规则构建结构化 Explanation Atom，再渲染 Brief/Standard/Full（默认 `full`）。每个 Atom 自带 `source_reference`、`locator` 与最小原文片段，`full` 固定按 13 个章节展开，`rendered.sentence_map` 把每个分句映射回一个或多个 Atom，`explanation_id` 与 `provenance` 让相同输入可复现。
 - 三档都不隐藏会改变结论的东西：冲突双方各自成 Atom 并生成响应级 Conflict Group（`winner=null`、`resolution_state=unresolved`，直接结论固定说「现有证据支持多个解释，不能确定唯一答案」），Relevant Source Gaps 与定位在 `brief` 里也保留；不按日期、置信度或平均值挑赢家，也不做 6.5 秒这类折中。
 - 措辞受控：原文 Atom 逐字等于来源片段，数值与比较符原样保留（`<` 不改写成 `≤`），关系只用 `visible_connector`/`next_step`/`depth_hint`/`candidate`/`unresolved`/`ignored` 六个模板，新增措辞不得出现「导致/依赖/触发/必须先完成/运行时调用/设计目的/因为/所以」；来源没写设计目的时明确返回未知，不用行业惯例补造。

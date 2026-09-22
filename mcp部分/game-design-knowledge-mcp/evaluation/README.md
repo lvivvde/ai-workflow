@@ -58,7 +58,7 @@ uv run python tools/evaluate.py `
 | `reading_order_relations` | 同 `layout_regions`：本示例语料为 `unavailable`；能力已交付（`flow-arrow-v1`），有图片样本时上报关系数、confirmed/candidate 拆分、不确定关系计数与规则版本。Precision/Recall/F1 等 Golden Set（V2-12）提供带标注语料后启用 |
 | `notation_resolution` | `unavailable`，但能力已交付（`designer-notation-v1`，仅 confirmed 条目）；缺的是带标注的记号样本，故本轮不测量 |
 | `statement_fidelity` | 已测量：声明数与可溯源比例 |
-| `retrieval` | 已测量：recall@limit、precision、MRR、无答案误报 |
+| `retrieval` | 已测量：recall@limit、precision、MRR、无答案误报；V2 检索底座已交付（`retrieval-v1`：原查询 + 确定性扩展 + 命名空间隔离通道 + 证据回读 + 冲突保护），带标注的 V2 检索样本仍缺，故按当前语料测量 |
 | `conflict_and_response_state` | 已测量：冲突保留率、期望→观测状态矩阵 |
 | `explanation` | `unavailable`，但能力已交付（`explanation-v1`：brief/standard/full）；缺的是带标注的释义样本，故本轮不测量 |
 | `performance_and_degradation` | 已测量：P50/P95 延迟、建库耗时、峰值内存、工作区体积、降级事件 |

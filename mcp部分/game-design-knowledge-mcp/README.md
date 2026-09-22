@@ -176,6 +176,7 @@ MCP 客户端配置示例：
 | 查询图片 | `search_images`、`get_image_context` |
 | 分层证据包与资产 | `get_evidence_package`、`get_evidence_packages`、`get_asset`、`get_processing_manifest` |
 | 分层详尽释义 | `explain_evidence`、`explain_query` |
+| V2 检索与证据回读 | `retrieve_evidence` |
 | 记法字典与人工审核 | `notation_dictionary`、`resolve_notation`、`plan_review_action`、`apply_review_action`、`review_history` |
 | 查询正文证据 | `search_evidence`、`get_evidence` |
 | 查询配置 | `search_config_cells`、`get_sheet_range` |
@@ -218,6 +219,14 @@ MCP 客户端配置示例：
 `explain_evidence(unit_id)` 解释单个检索单元，`explain_query(query)` 把一个问题的命中单元一起解释。两者都用确定性证据规则先构建结构化 Explanation Atom，再按 Brief、Standard 或 Full（默认）渲染：每个 Atom 独立可追溯，`rendered.sentence_map` 把每个分句映射回 Atom 与证据。
 
 三档都不会省略会改变结论的内容——冲突双方各自成 Atom 并生成 Conflict Group（`winner=null`），直接结论固定说「现有证据支持多个解释，不能确定唯一答案」；Relevant Source Gaps 与最精确来源位置在 `brief` 里也保留。数值与比较符原样保留（`<` 不改写成 `≤`），关系只用受控措辞，来源没写设计目的时返回未知。没有本地语言模型时模板渲染即满足完整契约，可选的本地润色器只能改写措辞；来源里的提示注入文本只被引用和标记，不改变 Profile、证据门槛或工具权限。完整契约见 [`docs/explanation.md`](docs/explanation.md)。
+
+## V2 检索与冲突保护
+
+`retrieve_evidence(query, mode="auto")` 是 V2 检索底座：保留原查询，只用**已确认**的记法字典与玩法别名做确定性扩展，再走 `exact`、`lexical`（FTS5）、`confirmed_alias`、`structures` 等命名空间隔离的通道。每个候选在返回前都**回读当前索引**并带上稳定 locator；行被删除、来源哈希变化或 locator 不再可读的命中只作为 Untraceable Candidate，绝不当作答案。
+
+排序只决定读的顺序：`exact` → `confirmed_alias` → `lexical`，不同通道的原始分数永不相加。高排名证据也**不能藏住**同一 scoped claim 的另一个值——冲突扫描会把未命中的对侧证据补回来，跨文档的分歧两侧组成 `winner=null`、`resolution_state=unresolved` 的 Conflict Group，同文档只报 Potential Conflict Candidate。未确认候选默认不参与事实回答（计入 `held_back_unconfirmed`），只有显式 `include_candidates=true` 才进入探索模式。
+
+请求 `hybrid` / `semantic` 时本构建没有向量能力，会显式降级为 `auto` 并给出 `degradation_events`；字典不可读同样只失去扩展、FTS5 照常工作。完整契约见 [`docs/retrieval.md`](docs/retrieval.md)。
 
 ## 文档证据政策
 

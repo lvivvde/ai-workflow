@@ -105,6 +105,16 @@ retrieve_evidence(query, document_type=None, evidence_type=None, limit=20,
 
 `retrieve_evidence` 是 V2 检索面：保留原查询，只用已确认记法字典与玩法别名做确定性扩展，再走命名空间隔离的 `exact`、`lexical`（FTS5）、`confirmed_alias`、`structures` 等通道。每个候选在返回前回读当前索引并带稳定 locator，无法回读的命中只作为 Untraceable Candidate；同一 scoped claim 的多侧证据结构化为 Conflict Group（`winner=null`）或 Potential Conflict Candidate，冲突扫描会补回未被查询命中的对侧，高排名不掩盖不同的值、单位、版本或时间。`mode` 取 `lexical`、`auto`（默认）、`hybrid`、`semantic`；没有向量能力时显式降级为 `auto` 并报告 `degradation_events`，字典或命名空间不可用时给出显式 degradation 而核心 FTS5 继续工作。`status` 为 `found`、`not_found`、`partial`、`ambiguous`、`degraded`、`failed` 之一；`search_evidence` 保持冻结的 V1 词法检索不变。详见 [`retrieval.md`](retrieval.md)。
 
+可选本地向量召回与查询改写（V2-10，实验开关，默认关闭）：
+
+```text
+semantic_index_status()
+rebuild_semantic_index(confirmed=False)
+drop_semantic_index(confirmed=False)
+```
+
+`GAME_DESIGN_EMBEDDING_PROVIDER` 为空时不加载任何 embedding 模型，检索行为与确定性底座一致；设为 `hashing`/`hashing:<dim>` 使用内置参考实现，设为 `module:attribute` 导入本地 provider。文档向量只在显式 `rebuild_semantic_index(confirmed=true)` 时写入可删除的侧车 `<index_dir>/semantic.sqlite`（`semantic-v1`，导入流程不写向量），查询时只生成查询向量；向量记录绑定稳定 `unit_id`、来源哈希与模型三元组（`model_id`/`model_version`/`dimension`），不同模型或维度的向量绝不混搜。`auto` 只在确定性通道没有事实命中时才请求向量，`hybrid` 缺能力时降级为 `degraded` 并继续用事实与 FTS5 回答，`semantic` 只跑向量通道并把确定性通道标为 `skipped`。命中记为 `semantic_candidate` 且必须回读当前事实，相似度不与 BM25 相加，低于阈值的命中只进 `possible_related`。`GAME_DESIGN_QUERY_REWRITER` 未配置时不改写查询；配置后每个变体都要通过守门（不得改变数值、单位、版本、时间、否定或范围），且永不更新 Designer Notation Dictionary。V2 首发不实现原始图片 embedding。
+
 策划记法字典与人工审核：
 
 ```text

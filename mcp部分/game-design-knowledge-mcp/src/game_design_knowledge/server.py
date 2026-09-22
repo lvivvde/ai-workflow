@@ -46,16 +46,24 @@ from .index_revisions import (
 )
 from .notation import dictionary_view, resolve as resolve_notation_entry
 from .policy import EVIDENCE_POLICY
+from .embeddings import PROVIDER_NOT_CONFIGURED, EmbeddingUnavailable, load_provider
+from .query_rewrite import load_rewriter
 from .retrieval import (
     DEFAULT_MODE as DEFAULT_RETRIEVAL_MODE,
     MAX_LIMIT as MAX_RETRIEVAL_LIMIT,
     RETRIEVAL_MODES,
+    VECTOR_LIFECYCLE_BOUNDARY,
     retrieve as retrieve_units,
 )
 from .review import (
     apply_review_action as build_review_application,
     plan_review_action as build_review_plan,
     review_history as read_review_history,
+)
+from .semantic_index import (
+    SEMANTIC_INDEX_FILENAME,
+    SemanticChannel,
+    SemanticIndex,
 )
 from .shared_index import SharedIndexRead, index_status_for_database
 from .state import DurableState
@@ -402,6 +410,9 @@ def retrieve_evidence(
 
     database_path = _database_path()
     notation, degradations = _retrieval_notation()
+    semantic, semantic_degradations = _semantic_channel(database_path)
+    degradations = [*degradations, *semantic_degradations]
+    rewriter, rewrite_report = load_rewriter()
     with SharedIndexRead(database_path) as index:
         return index.complete(
             retrieve_units(
@@ -415,8 +426,38 @@ def retrieve_evidence(
                 document=document,
                 notation=notation,
                 degradations=degradations,
+                semantic=semantic,
+                rewriter=rewriter,
+                rewrite_report=rewrite_report,
             )
         )
+
+
+def _semantic_channel(
+    database_path: Path,
+) -> tuple[SemanticChannel | None, list[dict[str, object]]]:
+    """The optional vector channel, or why this environment has none.
+
+    Nothing is loaded until the provider switch names a local provider, so a
+    build without one behaves exactly as the deterministic retrieval base did.
+    A provider that was switched on and could not be used is reported as a
+    degradation instead of disappearing.
+    """
+
+    try:
+        provider = load_provider()
+    except EmbeddingUnavailable as error:
+        if error.reason == PROVIDER_NOT_CONFIGURED:
+            return None, []
+        return None, [
+            {
+                "channel": "semantic",
+                "reason": error.reason,
+                "detail": error.detail,
+            }
+        ]
+    index = SemanticIndex(database_path.parent / SEMANTIC_INDEX_FILENAME)
+    return SemanticChannel(provider, index), []
 
 
 def _retrieval_notation() -> tuple[dict[str, object] | None, list[dict[str, object]]]:
@@ -440,6 +481,140 @@ def _retrieval_notation() -> tuple[dict[str, object] | None, list[dict[str, obje
                 ),
             }
         ]
+
+
+@mcp.tool()
+def semantic_index_status() -> dict[str, object]:
+    """Report the optional vector sidecar and the switch that turns it on.
+
+    Read-only: this build never downloads, installs or loads a model on its own
+    initiative. When nothing is configured it says so, and the deterministic
+    retrieval base is reported as unaffected.
+    """
+
+    try:
+        database_path = _database_path()
+    except (RuntimeError, FileNotFoundError) as error:
+        return {
+            "status": "unavailable",
+            "reason": "index_not_configured",
+            "detail": str(error),
+            "experimental": True,
+            "image_embedding": False,
+            "provider": None,
+            "index": None,
+            "rewriter": None,
+            "rebuild_recommended": False,
+            "boundary": VECTOR_LIFECYCLE_BOUNDARY,
+            "limitations": [str(error)],
+        }
+    index = SemanticIndex(database_path.parent / SEMANTIC_INDEX_FILENAME)
+    limitations: list[str] = []
+    identity = None
+    try:
+        provider = load_provider()
+    except EmbeddingUnavailable as error:
+        provider = None
+        provider_payload: dict[str, object] = {
+            "configured": error.reason != PROVIDER_NOT_CONFIGURED,
+            "available": False,
+            "reason": error.reason,
+            "detail": error.detail,
+            "model": None,
+        }
+        if error.reason != PROVIDER_NOT_CONFIGURED:
+            limitations.append(error.detail)
+    else:
+        identity = SemanticChannel(provider, index).identity
+        provider_payload = {
+            "configured": True,
+            "available": True,
+            "reason": "",
+            "detail": "",
+            "model": identity.as_payload(),
+        }
+    with SharedIndexRead(database_path) as facts:
+        described = index.describe(facts, identity=identity)
+    _, rewrite_report = load_rewriter()
+    if described["status"] != "ready":
+        limitations.append(str(described["detail"]))
+    return {
+        "status": described["status"] if provider is not None else "unavailable",
+        "experimental": True,
+        "image_embedding": described["image_embedding"],
+        "provider": provider_payload,
+        "index": described,
+        "rewriter": rewrite_report,
+        "rebuild_recommended": bool(provider is not None)
+        and described["status"] != "ready",
+        "boundary": VECTOR_LIFECYCLE_BOUNDARY,
+        "limitations": limitations,
+        "index_status": _index_status_for_database(database_path),
+    }
+
+
+@mcp.tool()
+def rebuild_semantic_index(confirmed: bool = False) -> dict[str, object]:
+    """Preview or explicitly rebuild the disposable vector sidecar.
+
+    The sidecar is written to a temporary file and moved into place, so a
+    failed or interrupted build leaves the published facts index untouched.
+    """
+
+    database_path = _database_path()
+    index = SemanticIndex(database_path.parent / SEMANTIC_INDEX_FILENAME)
+    if not confirmed:
+        return {
+            "status": "confirmation_required",
+            "will_rebuild_semantic_index": True,
+            "index_path": os.fspath(index.path),
+            "current": index.describe(None),
+            "limitations": [
+                "未收到 confirmed=true；现有向量索引与事实索引保持不变。"
+            ],
+        }
+    try:
+        provider = load_provider()
+    except EmbeddingUnavailable as error:
+        raise ValueError(error.detail) from error
+    with SharedIndexRead(database_path) as facts:
+        report = index.build(facts, provider)
+        described = index.describe(facts)
+    return {
+        **report,
+        "facts_index_untouched": True,
+        "index": described,
+        "boundary": VECTOR_LIFECYCLE_BOUNDARY,
+    }
+
+
+@mcp.tool()
+def drop_semantic_index(confirmed: bool = False) -> dict[str, object]:
+    """Preview or explicitly delete the vector sidecar.
+
+    Dropping it costs recall and nothing else: the facts, the lexical index and
+    every core tool keep working, which the returned ``index_status`` shows.
+    """
+
+    database_path = _database_path()
+    index = SemanticIndex(database_path.parent / SEMANTIC_INDEX_FILENAME)
+    if not confirmed:
+        return {
+            "status": "confirmation_required",
+            "will_drop_semantic_index": True,
+            "index_path": os.fspath(index.path),
+            "current": index.describe(None),
+            "limitations": [
+                "未收到 confirmed=true；向量索引仍然存在，事实索引不受影响。"
+            ],
+        }
+    removed = index.drop()
+    return {
+        **removed,
+        "core_tools_unaffected": True,
+        "index_status": _index_status_for_database(database_path),
+        "boundary": VECTOR_LIFECYCLE_BOUNDARY,
+    }
 
 
 @mcp.tool()

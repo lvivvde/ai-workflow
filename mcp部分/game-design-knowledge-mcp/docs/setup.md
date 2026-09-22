@@ -246,6 +246,17 @@ search_evidence("大风车")
 
 `search_images("文档信息", 10)` 应返回带出处的图片。`search_evidence("大风车")` 在当前示例文档中应返回空结果，不得自动联想到其他玩法。
 
+改过 `src/` 之后，再跑一遍分层评测确认没有破坏 V1 契约或证据安全不变量：
+
+```powershell
+uv run python tools/evaluate.py `
+  --corpus evaluation/corpora/v1_compatibility `
+  --corpus evaluation/corpora/development_set `
+  --corpus evaluation/corpora/golden_set
+```
+
+退出码为 `0` 表示五条 Release-blocking invariant 全部通过；非 `0` 时 `failures` 会逐条点名样本、模式和原因。评测全程不联网，产物写入 `evaluation/runs/`。协议见 [`../evaluation/README.md`](../evaluation/README.md)。
+
 ## 9. 可选 OCR
 
 检查系统是否已有 Tesseract：
@@ -335,4 +346,4 @@ __pycache__/
 *.pyc
 ```
 
-`.index/knowledge/knowledge.sqlite` 与 `.index/knowledge/assets/` 是明确例外，应和当前项目内部资料一起提交。其他临时索引目录默认仍被忽略。`docs/`、`examples/` 中的资料服从项目仓库本身的访问权限，无需额外脱敏，但不得发布到项目环境之外。
+`.index/knowledge/knowledge.sqlite` 与 `.index/knowledge/assets/` 是明确例外，应和当前项目内部资料一起提交。其他临时索引目录默认仍被忽略。`evaluation/corpora/` 属于版本化内容，`evaluation/runs/` 是本机可重现产物，默认忽略。`docs/`、`examples/` 中的资料服从项目仓库本身的访问权限，无需额外脱敏，但不得发布到项目环境之外。

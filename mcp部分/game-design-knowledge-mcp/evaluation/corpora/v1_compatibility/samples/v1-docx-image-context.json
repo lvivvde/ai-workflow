@@ -1,0 +1,38 @@
+{
+  "sample_id": "v1-docx-image-context",
+  "stratum": {
+    "source_type": "embedded_image",
+    "content_type": "image_text",
+    "language": "zh",
+    "visual_quality": "clean",
+    "structure_complexity": "simple",
+    "notation_complexity": "none",
+    "conflict_state": "none",
+    "capability_pack": "core",
+    "difficulty": "hard"
+  },
+  "documents": [{ "path": "活动系统.docx" }],
+  "tool": "search_images",
+  "arguments": { "query": "战斗流程示意", "limit": 10 },
+  "expected": {
+    "response_state": "found",
+    "allowed_answer_set": ["战斗流程示意"],
+    "required_evidence": [
+      {
+        "source_document": "活动系统.docx",
+        "locator_contains": {},
+        "text": "战斗流程示意"
+      }
+    ],
+    "required_gaps": [],
+    "conflict_group_expected": false
+  },
+  "annotation": {
+    "annotators": ["synthetic-pass-a", "synthetic-pass-b"],
+    "adjudicated": true,
+    "guide_version": "eval-guide-0.1"
+  },
+  "modes": ["component", "e2e"],
+  "capabilities": ["core"],
+  "notes": "图片可搜索并保留锚点；OCR 不可用时必须显式报告 unavailable，不得静默。"
+}

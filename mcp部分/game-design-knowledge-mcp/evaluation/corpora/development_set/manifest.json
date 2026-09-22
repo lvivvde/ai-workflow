@@ -1,0 +1,63 @@
+{
+  "name": "development_set",
+  "version": "0.1.0",
+  "split": "development",
+  "frozen": false,
+  "guide_version": "eval-guide-0.1",
+  "description": "可修改的开发集：用于调试、错误分析和回归定位。样本全部为合成内容，不含真实策划材料。",
+  "documents": {
+    "玩法说明.docx": {
+      "kind": "docx",
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 1,
+          "text": "玩法说明"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "每日任务"
+        },
+        {
+          "type": "paragraph",
+          "text": "每日任务在04:00重置。"
+        },
+        {
+          "type": "list_item",
+          "level": 0,
+          "text": "完成3个每日任务可领取宝箱。"
+        }
+      ]
+    },
+    "经济数值.xlsx": {
+      "kind": "xlsx",
+      "sheets": [
+        {
+          "name": "货币产出",
+          "rows": [
+            [
+              "来源",
+              "数量"
+            ],
+            [
+              "每日任务",
+              "120"
+            ],
+            [
+              "首胜",
+              "50"
+            ]
+          ]
+        }
+      ]
+    }
+  },
+  "sample_fingerprints": {
+    "dev-docx-heading-path": "0ac361a78c473c047325814ff30feb60a008a13da5d907e9d91635b655ac42bc",
+    "dev-docx-list-item": "ab337fc67d9276463f3f1e20322dd622734f242327d7130ed4cba29fa6ecafec",
+    "dev-no-answer": "9fda806953a5e6da6894cfbcbe56c11cc6055c4f746a9fc3da90849f14891488",
+    "dev-notation-unknown": "d2db0bc2cbbc30e19b157f7b1f5d8cf5e05529ca3635850f10da3b04a9fcb7a3",
+    "dev-xlsx-value": "ee57e612d84588094d1fe4e0bff63789d08a4c807ac228d05b10b44360712533"
+  }
+}

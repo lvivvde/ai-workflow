@@ -8,6 +8,9 @@ build/
 __pycache__/
 *.py[cod]
 
+# Evaluation runs are reproducible local artifacts; only corpora are versioned.
+evaluation/runs/
+
 # The production-ready shared index is intentionally versioned.
 !.index/knowledge/
 !.index/knowledge/knowledge.sqlite

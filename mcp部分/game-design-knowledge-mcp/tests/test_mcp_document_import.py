@@ -12,7 +12,7 @@ import zipfile
 
 from mcp import Client
 
-from game_design_knowledge.cli import _build_index_atomically
+from game_design_knowledge.cli import build_index_atomically
 from game_design_knowledge.ingest import (
     apply_document_import,
     plan_document_import,
@@ -30,7 +30,7 @@ class DocumentImportMcpTests(unittest.TestCase):
             incoming.parent.mkdir()
             project_root.mkdir()
             self._write_docx(incoming, "玩家每日可参与5次。")
-            _build_index_atomically(project_root, index_directory)
+            build_index_atomically(project_root, index_directory)
 
             previous_root = os.environ.get("GAME_DESIGN_PROJECT_ROOT")
             previous_index = os.environ.get("GAME_DESIGN_INDEX_DIR")
@@ -104,7 +104,7 @@ class DocumentImportMcpTests(unittest.TestCase):
             incoming.parent.mkdir()
             project_root.mkdir()
             incoming.write_bytes(b"not-an-ooxml-archive")
-            _build_index_atomically(project_root, index_directory)
+            build_index_atomically(project_root, index_directory)
             original_database = (index_directory / "knowledge.sqlite").read_bytes()
 
             plan = plan_document_import(

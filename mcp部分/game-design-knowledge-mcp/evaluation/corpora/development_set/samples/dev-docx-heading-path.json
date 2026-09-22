@@ -1,0 +1,38 @@
+{
+  "sample_id": "dev-docx-heading-path",
+  "stratum": {
+    "source_type": "docx",
+    "content_type": "rule_text",
+    "language": "mixed",
+    "visual_quality": "n/a",
+    "structure_complexity": "simple",
+    "notation_complexity": "none",
+    "conflict_state": "none",
+    "capability_pack": "core",
+    "difficulty": "basic"
+  },
+  "documents": [{ "path": "玩法说明.docx" }],
+  "tool": "search_evidence",
+  "arguments": { "query": "每日任务在04:00重置", "limit": 20 },
+  "expected": {
+    "response_state": "found",
+    "allowed_answer_set": ["每日任务在04:00重置。"],
+    "required_evidence": [
+      {
+        "source_document": "玩法说明.docx",
+        "locator_contains": { "paragraph_index": 3 },
+        "text": "每日任务在04:00重置。"
+      }
+    ],
+    "required_gaps": [],
+    "conflict_group_expected": false
+  },
+  "annotation": {
+    "annotators": ["synthetic-pass-a", "synthetic-pass-b"],
+    "adjudicated": true,
+    "guide_version": "eval-guide-0.1"
+  },
+  "modes": ["component", "e2e"],
+  "capabilities": ["core"],
+  "notes": "数字与时间点属于关键转录 token，定位必须稳定。"
+}

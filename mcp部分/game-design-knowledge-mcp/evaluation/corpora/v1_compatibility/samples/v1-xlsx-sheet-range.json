@@ -1,0 +1,42 @@
+{
+  "sample_id": "v1-xlsx-sheet-range",
+  "stratum": {
+    "source_type": "xlsx",
+    "content_type": "config_value",
+    "language": "mixed",
+    "visual_quality": "n/a",
+    "structure_complexity": "nested",
+    "notation_complexity": "none",
+    "conflict_state": "none",
+    "capability_pack": "core",
+    "difficulty": "hard"
+  },
+  "documents": [{ "path": "数值表.xlsx" }],
+  "tool": "get_sheet_range",
+  "arguments": {
+    "workbook": "{{path:数值表.xlsx}}",
+    "sheet": "掉落配置",
+    "range": "A1:B3"
+  },
+  "expected": {
+    "response_state": "found",
+    "allowed_answer_set": ["item_1001", "item_1002", "0.15", "0.05"],
+    "required_evidence": [
+      {
+        "source_document": "数值表.xlsx",
+        "locator_contains": { "cell_reference": "A3" },
+        "text": "item_1002"
+      }
+    ],
+    "required_gaps": [],
+    "conflict_group_expected": false
+  },
+  "annotation": {
+    "annotators": ["synthetic-pass-a", "synthetic-pass-b"],
+    "adjudicated": true,
+    "guide_version": "eval-guide-0.1"
+  },
+  "modes": ["component", "e2e"],
+  "capabilities": ["core"],
+  "notes": "区间读取必须返回该范围的全部已存储单元格事实。"
+}

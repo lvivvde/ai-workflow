@@ -1,0 +1,38 @@
+{
+  "sample_id": "v1-docx-table-cell-locator",
+  "stratum": {
+    "source_type": "docx",
+    "content_type": "config_value",
+    "language": "mixed",
+    "visual_quality": "n/a",
+    "structure_complexity": "nested",
+    "notation_complexity": "none",
+    "conflict_state": "none",
+    "capability_pack": "core",
+    "difficulty": "hard"
+  },
+  "documents": [{ "path": "活动系统.docx" }],
+  "tool": "search_evidence",
+  "arguments": { "query": "10钻石", "limit": 20 },
+  "expected": {
+    "response_state": "found",
+    "allowed_answer_set": ["10钻石"],
+    "required_evidence": [
+      {
+        "source_document": "活动系统.docx",
+        "locator_contains": { "table_index": 1, "row_index": 2, "cell_index": 2 },
+        "text": "10钻石"
+      }
+    ],
+    "required_gaps": [],
+    "conflict_group_expected": false
+  },
+  "annotation": {
+    "annotators": ["synthetic-pass-a", "synthetic-pass-b"],
+    "adjudicated": true,
+    "guide_version": "eval-guide-0.1"
+  },
+  "modes": ["component", "e2e"],
+  "capabilities": ["core"],
+  "notes": "表格单元格证据必须保留 table/row/cell 定位。"
+}

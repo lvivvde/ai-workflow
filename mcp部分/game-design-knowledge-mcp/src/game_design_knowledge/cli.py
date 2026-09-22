@@ -21,12 +21,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = build_parser().parse_args(argv)
-    report = _build_index_atomically(arguments.source, arguments.output)
+    report = build_index_atomically(arguments.source, arguments.output)
     print(json.dumps(report, ensure_ascii=False))
     return 0
 
 
-def _build_index_atomically(source: Path, output: Path) -> dict[str, int]:
+def build_index_atomically(source: Path, output: Path) -> dict[str, int]:
     output = output.resolve()
     if output == Path(output.anchor):
         raise ValueError("Index output must not be a filesystem root")

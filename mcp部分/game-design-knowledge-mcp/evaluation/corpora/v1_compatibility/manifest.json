@@ -1,0 +1,162 @@
+{
+  "name": "v1_compatibility",
+  "version": "0.1.0",
+  "split": "v1_compatibility",
+  "frozen": false,
+  "guide_version": "eval-guide-0.1",
+  "description": "合成语料，用于冻结 V1 MCP 工具的默认请求、响应字段、来源定位和冲突保留行为。所有内容均为合成，不含真实策划材料。",
+  "documents": {
+    "活动系统.docx": {
+      "kind": "docx",
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 1,
+          "text": "活动系统"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "幸运转盘"
+        },
+        {
+          "type": "paragraph",
+          "text": "玩家每日可参与5次。"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "登录奖励"
+        },
+        {
+          "type": "list_item",
+          "level": 0,
+          "text": "每日首次登录可获得100金币。"
+        },
+        {
+          "type": "table",
+          "rows": [
+            [
+              "档位",
+              "奖励"
+            ],
+            [
+              "1",
+              "10钻石"
+            ]
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "战斗流程示意"
+        },
+        {
+          "type": "image",
+          "relationship_id": "rIdImage1",
+          "media_name": "word/media/image1.png"
+        },
+        {
+          "type": "paragraph",
+          "text": "击败守卫后可进入下一关。"
+        }
+      ]
+    },
+    "活动系统-旧版.docx": {
+      "kind": "docx",
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 1,
+          "text": "活动系统"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "幸运转盘"
+        },
+        {
+          "type": "paragraph",
+          "text": "玩家每日可参与3次。"
+        }
+      ]
+    },
+    "数值表.xlsx": {
+      "kind": "xlsx",
+      "sheets": [
+        {
+          "name": "战斗数值",
+          "rows": [
+            [
+              "字段",
+              "数值",
+              "单位"
+            ],
+            [
+              "守卫生命值",
+              "1200",
+              "点"
+            ],
+            [
+              "守卫攻击力",
+              "85",
+              "点"
+            ],
+            [
+              "Boss生命值",
+              "3600",
+              "点"
+            ]
+          ]
+        },
+        {
+          "name": "掉落配置",
+          "rows": [
+            [
+              "物品ID",
+              "掉落率"
+            ],
+            [
+              "item_1001",
+              "0.15"
+            ],
+            [
+              "item_1002",
+              "0.05"
+            ]
+          ]
+        }
+      ]
+    },
+    "knowledge/catalog.json": {
+      "kind": "catalog",
+      "features": [
+        {
+          "key": "lucky_wheel",
+          "canonical_name": "幸运转盘",
+          "source": "knowledge/catalog.json",
+          "aliases": [
+            {
+              "name": "转盘",
+              "source": "knowledge/catalog.json",
+              "confirmed_at": "2026-09-18",
+              "confirmed_by": "synthetic-reviewer"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "sample_fingerprints": {
+    "v1-catalog-canonical": "f33d30988058c062d8e9c30a532a6b980e785376de21a7a7b09fbbdafe50ac24",
+    "v1-catalog-unknown-name": "8be4e0c4d08f6cd69d77c76d9afdda3eb68ec60e45ece14960bdb2f8619d3061",
+    "v1-docx-conflict-preserved": "caacfe5390446b987461b0634ef25920af33428d7dbd23d95aa98b7c927f7781",
+    "v1-docx-image-context": "6459234dbc3ba02c5e73289cae20d3acf82e1df8c43d07053cbdda4dfc9dc1e8",
+    "v1-docx-list-item-locator": "4a251b73dc9809c0597997a34978789d73ea18f838f38415d3a9a5e01754bd1c",
+    "v1-docx-not-found": "b0849e3d95ff72933d7a2029a7d64aab9a5ac1dafa67e2231973a8899024ce3e",
+    "v1-docx-paragraph-locator": "4d711fa68d7bf7896c26f7365887506ea5c847e4ea872d0380c7819270a46337",
+    "v1-docx-table-cell-locator": "9d6436a56c37149f8cae5b41cefde6c9a003d49b594613e7209556cbfde62d39",
+    "v1-xlsx-cell-locator": "914de42b1a60832fa496ed1612b1a1776126231912ee2ac8e75baa21c76a18a8",
+    "v1-xlsx-sheet-range": "1db789cba64a0b8eb04731c919d3587de5c1203e2d5f6e0e71d924ab3c587371"
+  }
+}

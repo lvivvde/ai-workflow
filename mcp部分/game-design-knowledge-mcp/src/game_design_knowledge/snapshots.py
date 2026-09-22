@@ -62,6 +62,9 @@ REQUIRED_TABLES = frozenset(
         "parse_revisions",
         "processing_manifests",
         "stage_attempts",
+        "ocr_runs",
+        "ocr_regions",
+        "ocr_normalizations",
     }
 )
 

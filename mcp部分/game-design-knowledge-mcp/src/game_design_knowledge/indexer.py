@@ -10,7 +10,7 @@ from pathlib import Path, PurePosixPath
 import posixpath
 import re
 import sqlite3
-from typing import Iterable
+from typing import Any, Iterable, Mapping
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -18,11 +18,32 @@ from . import revisions
 from .migration import (
     TARGET_SCHEMA_VERSION,
     SchemaVersionError,
+    ensure_ocr_schema,
     ensure_processing_schema,
     ensure_revision_schema,
     refusal_message,
 )
-from .ocr import DEFAULT_CHAIN, TESSERACT_ENGINE, OcrEngine
+from .ocr import (
+    DEFAULT_CHAIN,
+    IMAGE_SUFFIXES,
+    TESSERACT_ENGINE,
+    OcrEngine,
+    OcrResult,
+    RegionProvider,
+    image_preflight,
+    run_image_ocr,
+)
+from .ocr_normalization import (
+    NORMALIZATION_RULESET_VERSION,
+    normalize_transcription,
+)
+from .ocr_regions import (
+    DEFAULT_QUALITY_GATE,
+    QualityGate,
+    RegionObservation,
+    region_key_mark_confidence,
+    summarize_outcomes,
+)
 from .processing import configured_manifest as _configured_manifest
 from .revisions import ProcessingManifest
 from .state import state_directory_for
@@ -35,7 +56,10 @@ SPREADSHEET_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 SPREADSHEET_DRAWING_NS = "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"
 WORD_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 SCHEMA_VERSION = TARGET_SCHEMA_VERSION
-SOURCE_PATTERNS = ("*.docx", "*.xlsx")
+# Standalone images are indexed as their own documents so OCR has a real path
+# for them offline; the import tooling for them belongs to V2-06.
+IMAGE_SOURCE_PATTERNS = ("*.png", "*.jpg", "*.jpeg")
+SOURCE_PATTERNS = ("*.docx", "*.xlsx", *IMAGE_SOURCE_PATTERNS)
 EXCLUDED_SOURCE_DIRECTORIES = frozenset(
     {
         ".git",
@@ -64,7 +88,19 @@ def index_documents(
     processing_manifest: ProcessingManifest | None = None,
     ocr_engine: str | None = None,
     extra_excluded_directories: Iterable[str] | None = None,
+    ocr_providers: Mapping[str, RegionProvider] | None = None,
+    ocr_gate: QualityGate | Mapping[str, Any] | None = None,
+    ocr_language: str | None = None,
+    allow_compatibility_fallback: bool = True,
 ) -> dict[str, int]:
+    """Build the derived index for one source tree.
+
+    ``ocr_engine`` keeps its V1 meaning: when it is unset, images are handed
+    straight to the compatibility engine exactly as they were before V2. Naming
+    an engine (or injecting a test provider) switches to the degradation chain,
+    which also records regions, confidences, and normalization suggestions.
+    """
+
     source = source.resolve()
     output.mkdir(parents=True, exist_ok=True)
     assets_dir = output / "assets"
@@ -73,6 +109,9 @@ def index_documents(
     fingerprint = manifest.fingerprint
     excluded = excluded_directories(source, extra_excluded_directories)
     engine = _ocr_engine(ocr_engine)
+    gate = quality_gate(ocr_gate)
+    chain_mode = ocr_engine is not None or bool(ocr_providers)
+    outcomes: list[Any] = []
 
     documents_indexed = 0
     images_indexed = 0
@@ -84,6 +123,7 @@ def index_documents(
     documents_reused = 0
     documents_removed = 0
     assets_removed = 0
+    ocr_regions_recorded = 0
     current_paths = {
         _stored_source_path(path, output)
         for pattern in SOURCE_PATTERNS
@@ -177,7 +217,16 @@ def index_documents(
                 if not asset_path.exists():
                     asset_path.write_bytes(image_bytes)
                 mime_type = mimetypes.guess_type(media_name)[0] or "application/octet-stream"
-                ocr_status, ocr_text, ocr_error = _run_ocr(asset_path, engine)
+                ocr = _transcribe_image(
+                    asset_path,
+                    engine,
+                    chain_mode=chain_mode,
+                    providers=ocr_providers,
+                    gate=gate,
+                    language=ocr_language,
+                    allow_compatibility_fallback=allow_compatibility_fallback,
+                )
+                ocr_status, ocr_text, ocr_error = ocr.v1_status, ocr.text, ocr.error
                 image_id = connection.execute(
                     """
                     INSERT INTO images(
@@ -205,6 +254,9 @@ def index_documents(
                     "INSERT INTO image_fts(image_id, context_text, ocr_text, heading) VALUES (?, ?, ?, ?)",
                     (image_id, context_text, ocr_text, heading or ""),
                 )
+                _record_ocr_result(connection, image_id, ocr)
+                outcomes.append(ocr.outcome)
+                ocr_regions_recorded += len(ocr.observation.regions)
                 images_indexed += 1
                 ocr_succeeded += ocr_status == "succeeded"
                 ocr_failed += ocr_status == "failed"
@@ -325,7 +377,16 @@ def index_documents(
                 if not asset_path.exists():
                     asset_path.write_bytes(image_bytes)
                 mime_type = mimetypes.guess_type(media_name)[0] or "application/octet-stream"
-                ocr_status, ocr_text, ocr_error = _run_ocr(asset_path, engine)
+                ocr = _transcribe_image(
+                    asset_path,
+                    engine,
+                    chain_mode=chain_mode,
+                    providers=ocr_providers,
+                    gate=gate,
+                    language=ocr_language,
+                    allow_compatibility_fallback=allow_compatibility_fallback,
+                )
+                ocr_status, ocr_text, ocr_error = ocr.v1_status, ocr.text, ocr.error
                 image_id = connection.execute(
                     """
                     INSERT INTO images(
@@ -353,10 +414,43 @@ def index_documents(
                     "INSERT INTO image_fts(image_id, context_text, ocr_text, heading) VALUES (?, ?, ?, ?)",
                     (image_id, context_text, ocr_text, ""),
                 )
+                _record_ocr_result(connection, image_id, ocr)
+                outcomes.append(ocr.outcome)
+                ocr_regions_recorded += len(ocr.observation.regions)
                 images_indexed += 1
                 ocr_succeeded += ocr_status == "succeeded"
                 ocr_failed += ocr_status == "failed"
                 ocr_unavailable += ocr_status == "unavailable"
+
+        for document_path in _standalone_images(source, excluded):
+            image_result = _index_standalone_image(
+                connection,
+                document_path,
+                output,
+                logical_root=source,
+                processing_fingerprint=fingerprint,
+                engine=engine,
+                chain_mode=chain_mode,
+                providers=ocr_providers,
+                gate=gate,
+                language=ocr_language,
+                allow_compatibility_fallback=allow_compatibility_fallback,
+            )
+            if image_result is None:
+                continue
+            action, ocr = image_result
+            documents_indexed += 1
+            documents_added += action == "added"
+            documents_updated += action == "updated"
+            documents_reused += action == "reused"
+            if action == "reused":
+                continue
+            outcomes.append(ocr.outcome)
+            ocr_regions_recorded += len(ocr.observation.regions)
+            images_indexed += 1
+            ocr_succeeded += ocr.v1_status == "succeeded"
+            ocr_failed += ocr.v1_status == "failed"
+            ocr_unavailable += ocr.v1_status == "unavailable"
 
         for stale_document in connection.execute(
             "SELECT id, path FROM documents"
@@ -374,7 +468,7 @@ def index_documents(
                 asset_path.unlink()
                 assets_removed += 1
 
-    return {
+    report: dict[str, Any] = {
         "documents_indexed": documents_indexed,
         "images_indexed": images_indexed,
         "ocr_succeeded": ocr_succeeded,
@@ -388,6 +482,12 @@ def index_documents(
         "documents_removed": documents_removed,
         "assets_removed": assets_removed,
     }
+    # Additive V2 detail. The three V1 counters above keep their exact meaning;
+    # these say how many images went through the chain and how the region-level
+    # grading turned out.
+    report.update(summarize_outcomes(outcomes))
+    report["ocr_regions"] = ocr_regions_recorded
+    return report
 
 
 def _create_schema(connection: sqlite3.Connection) -> None:
@@ -533,6 +633,7 @@ def _create_schema(connection: sqlite3.Connection) -> None:
     connection.execute(f"PRAGMA user_version = {TARGET_SCHEMA_VERSION}")
     ensure_revision_schema(connection)
     ensure_processing_schema(connection)
+    ensure_ocr_schema(connection)
 
 
 def _index_catalog(
@@ -773,6 +874,25 @@ def _delete_document(connection: sqlite3.Connection, document_id: int) -> None:
         (document_id,),
     )
     connection.execute("DELETE FROM evidence WHERE document_id = ?", (document_id,))
+    connection.execute(
+        """
+        DELETE FROM ocr_normalizations
+        WHERE region_id IN (
+            SELECT r.id FROM ocr_regions AS r
+            JOIN images AS i ON i.id = r.image_id
+            WHERE i.document_id = ?
+        )
+        """,
+        (document_id,),
+    )
+    connection.execute(
+        "DELETE FROM ocr_regions WHERE image_id IN (SELECT id FROM images WHERE document_id = ?)",
+        (document_id,),
+    )
+    connection.execute(
+        "DELETE FROM ocr_runs WHERE image_id IN (SELECT id FROM images WHERE document_id = ?)",
+        (document_id,),
+    )
     connection.execute("DELETE FROM images WHERE document_id = ?", (document_id,))
     connection.execute(
         "DELETE FROM sheet_cells WHERE sheet_id IN (SELECT id FROM workbook_sheets WHERE document_id = ?)",
@@ -1182,6 +1302,248 @@ def _run_ocr(
     asset_path: Path, engine: OcrEngine = TESSERACT_ENGINE
 ) -> tuple[str, str, str | None]:
     return engine.transcribe(Path(asset_path))
+
+
+def _transcribe_image(
+    asset_path: Path,
+    engine: OcrEngine,
+    *,
+    chain_mode: bool,
+    providers: Mapping[str, RegionProvider] | None,
+    gate: QualityGate,
+    language: str | None,
+    allow_compatibility_fallback: bool,
+) -> OcrResult:
+    """One image, either through the chain or through the V1 single engine."""
+
+    if not chain_mode:
+        status, text, error = engine.transcribe(Path(asset_path))
+        provider_status = {
+            "succeeded": "succeeded",
+            "failed": "failed",
+            "unavailable": "unavailable",
+        }.get(status, "failed")
+        observation = RegionObservation(
+            engine=engine.name,
+            provider_status=provider_status,
+            flat_text=text or "",
+            detail=error or "",
+            language=language or "",
+            requested_engine=engine.name,
+        )
+        return OcrResult(
+            observation=observation,
+            outcome=observation.outcome(gate),
+            attempts=(),
+            requested_engine=engine.name,
+        )
+    return run_image_ocr(
+        Path(asset_path),
+        engine=engine,
+        providers=providers,
+        gate=gate,
+        language=language,
+        allow_compatibility_fallback=allow_compatibility_fallback,
+    )
+
+
+def _record_ocr_result(
+    connection: sqlite3.Connection, image_id: int, result: OcrResult
+) -> None:
+    """Persist the run, its regions, and the suggestion proposed per region."""
+
+    observation = result.observation
+    outcome = result.outcome
+    now = _now_iso()
+    run_id = connection.execute(
+        """
+        INSERT INTO ocr_runs(
+            image_id, requested_engine, engine, engine_version, tier,
+            fallback_used, execution_status, quality_status, reason_code,
+            detail, evidence_state, language, reading_order_source,
+            region_count, reason_chain, duration_ms, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            image_id,
+            result.requested_engine,
+            observation.engine,
+            observation.engine_version,
+            observation.tier,
+            int(observation.fallback_used),
+            outcome.execution_status,
+            outcome.quality_status,
+            outcome.reason_code,
+            outcome.detail,
+            outcome.evidence_state,
+            observation.language,
+            observation.reading_order_source,
+            len(observation.regions),
+            json.dumps([dict(entry) for entry in observation.reason_chain], ensure_ascii=False),
+            observation.duration_ms,
+            now,
+        ),
+    ).lastrowid
+    for region in observation.ordered():
+        region_id = connection.execute(
+            """
+            INSERT INTO ocr_regions(
+                run_id, image_id, region_index, reading_order, bbox, text_raw,
+                text_confidence, region_confidence, key_mark_confidence, language
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run_id,
+                image_id,
+                region.index,
+                region.reading_order,
+                (
+                    json.dumps(region.bbox.as_payload())
+                    if region.bbox is not None
+                    else None
+                ),
+                region.text,
+                region.text_confidence,
+                region.region_confidence,
+                region_key_mark_confidence(region),
+                region.language or observation.language,
+            ),
+        ).lastrowid
+        suggestion = normalize_transcription(region.text)
+        if suggestion.changed:
+            connection.execute(
+                """
+                INSERT INTO ocr_normalizations(
+                    region_id, ruleset_version, normalized_text, changes, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    region_id,
+                    NORMALIZATION_RULESET_VERSION,
+                    suggestion.normalized,
+                    json.dumps(
+                        [change.as_payload() for change in suggestion.changes],
+                        ensure_ascii=False,
+                    ),
+                    now,
+                ),
+            )
+
+
+def _standalone_images(source: Path, excluded: Iterable[str]) -> list[Path]:
+    """Image files that are their own document rather than an embedded asset."""
+
+    found: list[Path] = []
+    for pattern in IMAGE_SOURCE_PATTERNS:
+        found.extend(source_documents(source, pattern, excluded))
+    return sorted(set(found))
+
+
+def _index_standalone_image(
+    connection: sqlite3.Connection,
+    path: Path,
+    output: Path,
+    *,
+    logical_root: Path,
+    processing_fingerprint: str,
+    engine: OcrEngine,
+    chain_mode: bool,
+    providers: Mapping[str, RegionProvider] | None,
+    gate: QualityGate,
+    language: str | None,
+    allow_compatibility_fallback: bool,
+) -> tuple[str, OcrResult | None]:
+    """Index one standalone PNG/JPEG as its own document with one image row."""
+
+    document_id, action = _prepare_document(
+        connection,
+        path,
+        "image",
+        output,
+        logical_root=logical_root,
+        processing_fingerprint=processing_fingerprint,
+    )
+    if action == "reused":
+        return action, None
+    digest = revisions.file_sha256(path)
+    assets_dir = output / "assets"
+    asset_path = assets_dir / f"{digest}{path.suffix.lower()}"
+    if not asset_path.exists():
+        asset_path.write_bytes(path.read_bytes())
+    mime_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    ocr = _transcribe_image(
+        asset_path,
+        engine,
+        chain_mode=chain_mode,
+        providers=providers,
+        gate=gate,
+        language=language,
+        allow_compatibility_fallback=allow_compatibility_fallback,
+    )
+    image_id = connection.execute(
+        """
+        INSERT INTO images(
+            document_id, relationship_id, source_part, sha256, mime_type,
+            asset_path, ocr_status, ocr_text, ocr_error, heading,
+            paragraph_index, context_text, sheet_name, cell_anchor
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            document_id,
+            "standalone",
+            _source_part(path, logical_root),
+            digest,
+            mime_type,
+            asset_path.relative_to(output).as_posix(),
+            ocr.v1_status,
+            ocr.text,
+            ocr.error,
+            "",
+            None,
+            "",
+            None,
+            None,
+        ),
+    ).lastrowid
+    connection.execute(
+        "INSERT INTO image_fts(image_id, context_text, ocr_text, heading) VALUES (?, ?, ?, ?)",
+        (image_id, _source_part(path, logical_root), ocr.text, ""),
+    )
+    _record_ocr_result(connection, image_id, ocr)
+    return action, ocr
+
+
+def _source_part(path: Path, logical_root: Path) -> str:
+    try:
+        return path.resolve().relative_to(logical_root.resolve()).as_posix()
+    except ValueError:
+        return path.name
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def quality_gate(value: QualityGate | Mapping[str, Any] | None) -> QualityGate:
+    """Accept the configured gate either as an object or as recorded payload."""
+
+    if value is None:
+        return DEFAULT_QUALITY_GATE
+    if isinstance(value, QualityGate):
+        return value
+    default = DEFAULT_QUALITY_GATE
+    try:
+        return QualityGate(
+            min_text_confidence=float(
+                value.get("min_text_confidence", default.min_text_confidence)
+            ),
+            min_key_mark_confidence=float(
+                value.get("min_key_mark_confidence", default.min_key_mark_confidence)
+            ),
+            min_characters=int(value.get("min_characters", default.min_characters)),
+        )
+    except (TypeError, ValueError):
+        return default
 
 
 def _read_shared_strings(archive: zipfile.ZipFile) -> list[str]:

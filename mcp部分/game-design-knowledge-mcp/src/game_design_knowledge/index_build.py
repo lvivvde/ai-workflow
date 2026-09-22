@@ -8,7 +8,7 @@ same way: build into a snapshot, validate it, then swap the active files.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from .index_revisions import (
     parse_revisions_by_document,
@@ -27,6 +27,10 @@ def build_index_atomically(
     processing_manifest: ProcessingManifest | None = None,
     ocr_engine: str | None = None,
     extra_excluded_directories: Iterable[str] | None = None,
+    ocr_providers: Mapping[str, Any] | None = None,
+    ocr_gate: Any = None,
+    ocr_language: str | None = None,
+    allow_compatibility_fallback: bool = True,
     processing_run: Any = None,
 ) -> dict[str, int]:
     """Build into a snapshot, then publish it with a rename and a pointer write.
@@ -51,6 +55,10 @@ def build_index_atomically(
             processing_manifest=manifest,
             ocr_engine=ocr_engine,
             extra_excluded_directories=extra_excluded_directories,
+            ocr_providers=ocr_providers,
+            ocr_gate=ocr_gate,
+            ocr_language=ocr_language,
+            allow_compatibility_fallback=allow_compatibility_fallback,
         )
         if processing_run is not None:
             processing_run.record_projection(report)

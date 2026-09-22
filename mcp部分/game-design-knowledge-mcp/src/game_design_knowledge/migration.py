@@ -21,9 +21,10 @@ from typing import Any, Callable
 from .snapshots import verify_snapshot
 
 
-TARGET_SCHEMA_VERSION = 4
+TARGET_SCHEMA_VERSION = 5
 LEGACY_SCHEMA_VERSIONS = frozenset({1})
 REVISION_SCHEMA_VERSION = 3
+PROCESSING_SCHEMA_VERSION = 4
 
 DOCUMENT_REVISION_COLUMNS: dict[str, str] = {
     "logical_document_id": "TEXT",
@@ -126,6 +127,70 @@ class SchemaVersionError(RuntimeError):
     """Raised when a database's schema version cannot be read safely."""
 
 
+# The OCR run, its regions, and the normalization suggestions proposed for each
+# region. Raw transcription lives in ``ocr_regions.text_raw`` and is never
+# rewritten; a suggestion is a separate row that points back at its region.
+OCR_TABLE_STATEMENTS: tuple[str, ...] = (
+    """
+    CREATE TABLE IF NOT EXISTS ocr_runs (
+        id INTEGER PRIMARY KEY,
+        image_id INTEGER NOT NULL,
+        requested_engine TEXT NOT NULL DEFAULT '',
+        engine TEXT NOT NULL DEFAULT '',
+        engine_version TEXT NOT NULL DEFAULT '',
+        tier TEXT NOT NULL DEFAULT '',
+        fallback_used INTEGER NOT NULL DEFAULT 0,
+        execution_status TEXT NOT NULL,
+        quality_status TEXT NOT NULL,
+        reason_code TEXT NOT NULL DEFAULT '',
+        detail TEXT NOT NULL DEFAULT '',
+        evidence_state TEXT NOT NULL DEFAULT 'transcription',
+        language TEXT NOT NULL DEFAULT '',
+        reading_order_source TEXT NOT NULL DEFAULT '',
+        region_count INTEGER NOT NULL DEFAULT 0,
+        reason_chain TEXT NOT NULL DEFAULT '[]',
+        duration_ms INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS ocr_regions (
+        id INTEGER PRIMARY KEY,
+        run_id INTEGER NOT NULL,
+        image_id INTEGER NOT NULL,
+        region_index INTEGER NOT NULL,
+        reading_order INTEGER NOT NULL DEFAULT 0,
+        bbox TEXT,
+        text_raw TEXT NOT NULL,
+        text_confidence REAL,
+        region_confidence REAL,
+        key_mark_confidence REAL,
+        language TEXT NOT NULL DEFAULT '',
+        UNIQUE(run_id, region_index)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS ocr_normalizations (
+        id INTEGER PRIMARY KEY,
+        region_id INTEGER NOT NULL,
+        ruleset_version TEXT NOT NULL,
+        normalized_text TEXT NOT NULL,
+        changes TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL,
+        UNIQUE(region_id, ruleset_version)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ocr_runs_image_index ON ocr_runs(image_id)",
+    "CREATE INDEX IF NOT EXISTS ocr_regions_image_index ON ocr_regions(image_id)",
+)
+
+
+def ensure_ocr_schema(connection: sqlite3.Connection) -> list[str]:
+    """Create the OCR tables that carry region-level transcription."""
+
+    return _ensure_tables(connection, OCR_TABLE_STATEMENTS)
+
+
 class MigrationError(RuntimeError):
     """Raised when a migration did not finish and had to be rolled back."""
 
@@ -158,10 +223,19 @@ STEPS: dict[int, MigrationStep] = {
     ),
     3: MigrationStep(
         version_from=3,
-        version_to=TARGET_SCHEMA_VERSION,
+        version_to=PROCESSING_SCHEMA_VERSION,
         description=(
             "Add the processing tables (processing_manifests, stage_attempts) "
             "that record which stages, engines, and fallbacks produced a build"
+        ),
+    ),
+    4: MigrationStep(
+        version_from=PROCESSING_SCHEMA_VERSION,
+        version_to=TARGET_SCHEMA_VERSION,
+        description=(
+            "Add the OCR tables (ocr_runs, ocr_regions, ocr_normalizations) that "
+            "keep region geometry, raw transcription, separated confidences, and "
+            "the suggestion proposed for each region"
         ),
     ),
 }
@@ -397,8 +471,10 @@ def rollback_migration(database_path: Path, backup_path: Path) -> dict[str, Any]
 def _run_step(step: MigrationStep, connection: sqlite3.Connection) -> list[str]:
     if step.version_to == REVISION_SCHEMA_VERSION:
         return ensure_revision_schema(connection)
-    if step.version_to == TARGET_SCHEMA_VERSION:
+    if step.version_to == PROCESSING_SCHEMA_VERSION:
         return ensure_processing_schema(connection)
+    if step.version_to == TARGET_SCHEMA_VERSION:
+        return ensure_ocr_schema(connection)
     raise MigrationError(f"No migration is defined onto version {step.version_to}")
 
 
@@ -444,9 +520,12 @@ __all__ = [
     "SchemaVersionError",
     "TARGET_SCHEMA_VERSION",
     "apply_migration",
+    "ensure_ocr_schema",
     "ensure_processing_schema",
     "ensure_revision_schema",
+    "OCR_TABLE_STATEMENTS",
     "plan_migration",
+    "PROCESSING_SCHEMA_VERSION",
     "read_schema_version",
     "refusal_message",
     "rollback_migration",

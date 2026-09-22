@@ -168,11 +168,18 @@ class StagedProcessingTests(unittest.TestCase):
                 "the documented degradation order is preserved",
             )
             for engine in ("rapidocr", "paddleocr"):
-                self.assertFalse(
-                    chain[engine]["usable"],
-                    f"{engine} is declared by this build but not usable yet",
+                entry = chain[engine]
+                self.assertEqual(
+                    entry["usable"],
+                    entry["available"],
+                    f"{engine} is usable exactly when it is installed",
                 )
-                self.assertIn("not implemented", chain[engine]["detail"])
+                self.assertTrue(
+                    entry["detail"],
+                    f"{engine} always explains why it was skipped or selected",
+                )
+                if not entry["available"]:
+                    self.assertIn("not installed", entry["detail"])
             if ocr.execution_status == "unavailable":
                 self.assertEqual(ocr.reason_code, "no_usable_engine")
                 self.assertEqual(ocr.quality_status, "rejected")

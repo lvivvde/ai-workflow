@@ -24,6 +24,7 @@ from .ocr import (
     TESSERACT_ENGINE,
     select_engine,
 )
+from .ocr_regions import DEFAULT_QUALITY_GATE, QualityGate
 from .processing import (
     DEFAULT_PIPELINE,
     ProcessingRun,
@@ -48,7 +49,14 @@ from .revisions import (
 )
 
 
-SOURCE_SUFFIXES = {".docx": "docx", ".xlsx": "xlsx"}
+SOURCE_SUFFIXES = {
+    ".docx": "docx",
+    ".xlsx": "xlsx",
+    ".png": "image",
+    ".jpg": "image",
+    ".jpeg": "image",
+}
+IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg"})
 PIPELINE_NAMES = tuple(stage.name for stage in DEFAULT_PIPELINE)
 
 
@@ -70,6 +78,11 @@ def source_parse(context: StageContext) -> StageOutput:
     digest = file_sha256(source_path)
     document_type = SOURCE_SUFFIXES.get(source_path.suffix.lower(), "")
     logical = document_id(context.document_path)
+    engine = (
+        "image-preflight"
+        if source_path.suffix.lower() in IMAGE_SUFFIXES
+        else "ooxml-parser"
+    )
     return StageOutput(
         payload={
             "path": context.document_path,
@@ -87,17 +100,34 @@ def source_parse(context: StageContext) -> StageOutput:
                 or "unconfigured",
             ),
         },
-        engine="ooxml-parser",
+        engine=engine,
         engine_version=f"schema-{SCHEMA_VERSION}",
         coverage={"documents": 1},
     )
 
 
 def select_ocr(context: StageContext) -> StageOutput:
-    """Walk the degradation chain and record the engine the run must use."""
+    """Record the engine this run selected and how the chain got there.
 
-    selection: OcrSelection = context.config.get("selection")  # type: ignore[assignment]
-    if selection is None:
+    The run picks the engine once (``run_pipeline``) so every image in the build
+    is transcribed by the same tier; the handler grades that decision per
+    document and reports the pack status next to it. When the handler is called
+    without a recorded selection it walks the chain itself, which is what a
+    direct stage test does.
+    """
+
+    recorded = context.config.get("selection")
+    selection: OcrSelection
+    if isinstance(recorded, Mapping):
+        engine = _engine_for(str(recorded.get("selected") or ""))
+        selection = OcrSelection(
+            engine=engine,
+            chain=tuple(dict(entry) for entry in recorded.get("chain") or ()),
+            execution_status=str(recorded.get("execution_status") or "unavailable"),
+            reason_code=str(recorded.get("reason_code") or ""),
+            reason=str(recorded.get("reason") or ""),
+        )
+    else:
         selection = select_engine(runtime=context.runtime)
     payload = selection.as_payload()
     pack_status = detect_pack(
@@ -155,6 +185,15 @@ def declared_stage(
         detail=detail,
         coverage={},
     )
+
+
+def _engine_for(name: str) -> OcrEngine | None:
+    """The engine object behind a recorded selection name."""
+
+    for candidate in DEFAULT_CHAIN:
+        if candidate.name == name:
+            return candidate
+    return None
 
 
 def layout(context: StageContext) -> StageOutput:
@@ -242,6 +281,9 @@ def run_pipeline(
     retry_stages: Iterable[str] = (),
     ocr_engine: OcrEngine | None = None,
     allow_compatibility_fallback: bool = True,
+    ocr_gate: QualityGate | None = None,
+    ocr_language: str | None = None,
+    ocr_providers: Mapping[str, Any] | None = None,
     include: Iterable[str] | None = None,
     exclude: Iterable[str] | None = None,
     prior_history: Mapping[str, Sequence[StageAttempt]] | None = None,
@@ -302,6 +344,21 @@ def run_pipeline(
     }
 
     with runtime:
+        # One engine for the whole build: the indexer is handed a single engine
+        # name, so the chain has to be walked once, not once per document.
+        selection = select_engine(
+            chain=(
+                (ocr_engine, *DEFAULT_CHAIN) if ocr_engine is not None else DEFAULT_CHAIN
+            ),
+            allow_compatibility_fallback=allow_compatibility_fallback,
+            runtime=runtime,
+        )
+        ocr_settings: dict[str, Any] = {
+            "selection": selection.as_payload(),
+            "ocr_gate": (ocr_gate or DEFAULT_QUALITY_GATE).as_payload(),
+            "ocr_language": ocr_language or "",
+            "allow_compatibility_fallback": allow_compatibility_fallback,
+        }
         for stage in DEFAULT_PIPELINE:
             if stage.name not in selected:
                 previous = (prior_history or {}).get(stage.name) or ()
@@ -309,14 +366,36 @@ def run_pipeline(
                     run.reuse(stage.name, previous[-1].attempt_id)
                 continue
             if stage.name == "retrieval_projection":
-                _run_projection_stage(run, stage, documents, config, ocr_engine)
+                _run_projection_stage(
+                    run,
+                    stage,
+                    documents,
+                    config,
+                    selection.engine or TESSERACT_ENGINE,
+                    ocr_settings=ocr_settings,
+                    ocr_providers=ocr_providers,
+                )
                 continue
             if not stage.per_document:
-                _run_document_stage(run, stage, "", config, runtime, ocr_engine)
+                _run_document_stage(
+                    run,
+                    stage,
+                    "",
+                    config,
+                    runtime,
+                    ocr_engine,
+                    ocr_settings=ocr_settings,
+                )
                 continue
             for document in documents:
                 _run_document_stage(
-                    run, stage, document, config, runtime, ocr_engine
+                    run,
+                    stage,
+                    document,
+                    config,
+                    runtime,
+                    ocr_engine,
+                    ocr_settings=ocr_settings,
                 )
         runtime.end_batch()
     return run
@@ -377,6 +456,8 @@ def _run_document_stage(
     config: Mapping[str, Any],
     runtime: CapabilityRuntime,
     ocr_engine: OcrEngine | None,
+    *,
+    ocr_settings: Mapping[str, Any] | None = None,
 ) -> tuple[StageAttempt, StageOutput]:
     handler = HANDLERS.get(stage.name)
     if handler is None:
@@ -389,6 +470,7 @@ def _run_document_stage(
     stage_config: dict[str, Any] = dict(config)
     handler_config: dict[str, Any] = {}
     if stage.name == "ocr":
+        stage_config.update(ocr_settings or {})
         selection = select_engine(
             chain=(ocr_engine, *DEFAULT_CHAIN)
             if ocr_engine is not None
@@ -441,6 +523,9 @@ def _run_projection_stage(
     documents: Sequence[str],
     config: Mapping[str, Any],
     ocr_engine: OcrEngine | None,
+    *,
+    ocr_settings: Mapping[str, Any] | None = None,
+    ocr_providers: Mapping[str, Any] | None = None,
 ) -> StageAttempt:
     document_attempts = [
         attempt
@@ -450,6 +535,7 @@ def _run_projection_stage(
     engine = ocr_engine
     if engine is None:
         engine = TESSERACT_ENGINE
+    settings = dict(ocr_settings or {})
     run.begin_projection(
         input_sha256=aggregate_output_sha256(document_attempts),
         config={
@@ -457,6 +543,8 @@ def _run_projection_stage(
             "documents": len(documents),
             "ocr_engine": engine.name,
             "configured_fingerprint": config.get("configured_fingerprint", ""),
+            "ocr_gate": settings.get("ocr_gate", {}),
+            "ocr_language": settings.get("ocr_language", ""),
         },
     )
     started = time.monotonic()
@@ -466,6 +554,12 @@ def _run_projection_stage(
             run.index_directory,
             processing_manifest=run.configured_manifest,
             ocr_engine=engine.name,
+            ocr_providers=ocr_providers,
+            ocr_gate=settings.get("ocr_gate"),
+            ocr_language=settings.get("ocr_language") or None,
+            allow_compatibility_fallback=bool(
+                settings.get("allow_compatibility_fallback", True)
+            ),
             processing_run=run,
         )
     except Exception as error:

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- 交付区域级 OCR：DOCX/XLSX 内嵌图片与独立 PNG/JPEG 现在按**区域**产出边界框、阅读顺序、语言与原文，逐区域保存 Raw Transcription、规范化建议和逐 span 变更记录；规范化只产出建议，原文永不被覆盖。
+- 每区域分别记录文字、区域、关键标记三类置信度，拒绝任何单一总分载荷；数字、百分比、ID、运算符、箭头和否定词作为 Critical Transcription Tokens 按类别单独评分，`-3.5`、`ITEM_ID_01` 这类写法不会被拆错。
+- OCR 状态映射收敛到单一处：超时/引擎报错保留已产出的区域并标 `partial`，部分输出永不判 `accepted`；损坏图片、格式不支持、缺语言包、缺模型与无可用引擎各自给出准确的 execution/quality 状态、`reason_code` 与 `corrective_action`。
+- 单张图按“请求的引擎优先”下钻降级链：`unavailable`/`failed`/缺语言包/缺模型继续换引擎，`succeeded`/`timeout`/`corrupt_image`/`unsupported_format` 立即停止；最后一级给出的原因会被保留，不压成笼统的 `no_usable_engine`。
+- RapidOCR 适配器要求 ONNX 模型已经存在于本地（`GAME_DESIGN_OCR_MODEL_DIR` 或包内 `models/`），缺失即报 `models_missing` 并说明构建期从不下载模型；PaddleOCR 适配器同时兼容 `predict()` 与旧 `ocr()` 接口；Tesseract 走 TSV 模式聚合成行区域并保留逐行置信度。
+- OCR 结果默认停留在 `transcription`/`machine-supported` 事实边界，载荷中不允许出现 `explicit`/`verified`。
+- Schema 升级到 v5，新增 `ocr_runs`、`ocr_regions`、`ocr_normalizations` 三张表与两条索引，提供 v4 → v5 显式迁移；`index_status` 与 `get_image_context` 增加区域级 OCR 明细，旧索引迁移后照常可读。
+- 评测脚手架的 `ocr_transcription` 层现在报告区域数、machine-supported、低质量与回退计数；CER/WER 与关键标记评分明确归属 Golden Set（V2-12）提供带标注语料后启用。
 - 把单体建索引拆成 8 个可独立重试、可缓存、可降级的处理阶段（`source_parse`、`ocr`、`layout`、`structure_relations`、`notation`、`statements`、`explanation_cache`、`retrieval_projection`），每次执行写入不可变 Stage Attempt，重试只新增行、不覆盖历史。
 - 引入 Stage Fingerprint 与内容寻址 Stage Cache：缓存命中要求整条指纹一致，payload 命中后重新哈希校验；指纹变化只失效该 stage 及其全部下游，重试未受影响的 stage 以 `reused` 携带上一轮 attempt id 前进。
 - 新增本地能力包清单与运行时：`core`、`enhanced_ocr`、`visual` 三包各自声明用途、许可证、硬件下限、体积与空闲超时；包状态到 stage 执行状态的映射收敛到单一处，缺失可选能力时明确产出 `unavailable`/`degraded`，Core 处理继续。

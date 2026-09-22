@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 import json
 import os
 from pathlib import Path
 import re
 import sqlite3
+from typing import Any
 
 from mcp.server import MCPServer
 
@@ -32,8 +34,15 @@ from .index_revisions import (
     processing_manifest,
     stage_attempt_summary,
 )
+from .notation import dictionary_view, resolve as resolve_notation_entry
 from .policy import EVIDENCE_POLICY
+from .review import (
+    apply_review_action as build_review_application,
+    plan_review_action as build_review_plan,
+    review_history as read_review_history,
+)
 from .shared_index import SharedIndexRead, index_status_for_database
+from .state import DurableState
 
 
 mcp = MCPServer(
@@ -1158,6 +1167,238 @@ def rebuild_shared_index(confirmed: bool = False) -> dict[str, object]:
         index_directory / "knowledge.sqlite"
     )
     return result
+
+
+def _review_intent(
+    *,
+    action: str,
+    notation_token: str = "",
+    meaning: str = "",
+    scope_kind: str = "",
+    scope_value: str = "",
+    document: str = "",
+    document_type: str = "",
+    region: str = "",
+    entry_id: str = "",
+    authority: str = "",
+    parse_revision_id: str = "",
+    valid_from: str = "",
+    valid_until: str = "",
+    resolution_kind: str = "",
+    candidate_id: str = "",
+    reason: str = "",
+    actor: str = "",
+    note: str = "",
+    basis: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """One shape for both halves of a review action, so the token can match."""
+
+    return {
+        "action": action,
+        "notation_token": notation_token,
+        "meaning": meaning,
+        "scope_kind": scope_kind,
+        "scope_value": scope_value,
+        "document": document,
+        "document_type": document_type,
+        "region": region,
+        "entry_id": entry_id,
+        "authority": authority,
+        "parse_revision_id": parse_revision_id,
+        "valid_from": valid_from,
+        "valid_until": valid_until,
+        "resolution_kind": resolution_kind,
+        "candidate_id": candidate_id,
+        "reason": reason,
+        "actor": actor,
+        "note": note,
+        "basis": basis or {},
+    }
+
+
+@mcp.tool()
+def notation_dictionary(
+    document: str = "",
+    include_history: bool = False,
+    limit: int = 200,
+) -> dict[str, object]:
+    """Return confirmed notation meanings, then the candidates below them."""
+
+    with _review_index() as index:
+        return dictionary_view(
+            _durable_state(),
+            index,
+            document=document or None,
+            include_history=include_history,
+            limit=limit,
+        )
+
+
+@mcp.tool()
+def resolve_notation(
+    notation_token: str,
+    document: str,
+    document_type: str = "",
+    region: str = "",
+    parse_revision_id: str = "",
+    external_common_knowledge: str = "",
+) -> dict[str, object]:
+    """Read one token in one place; only a confirmed meaning is a project fact."""
+
+    with _review_index() as index:
+        return resolve_notation_entry(
+            _durable_state(),
+            index,
+            notation_token=notation_token,
+            document=document,
+            document_type=document_type,
+            region=region,
+            parse_revision_id=parse_revision_id,
+            external_common_knowledge=external_common_knowledge or None,
+        )
+
+
+@mcp.tool()
+def plan_review_action(
+    action: str,
+    notation_token: str = "",
+    meaning: str = "",
+    scope_kind: str = "",
+    scope_value: str = "",
+    document: str = "",
+    document_type: str = "",
+    region: str = "",
+    entry_id: str = "",
+    authority: str = "",
+    parse_revision_id: str = "",
+    valid_from: str = "",
+    valid_until: str = "",
+    resolution_kind: str = "",
+    candidate_id: str = "",
+    reason: str = "",
+    actor: str = "",
+    note: str = "",
+    basis: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Preview one review action and the token that would apply it."""
+
+    with _review_index() as index:
+        return build_review_plan(
+            _durable_state(),
+            index,
+            **_review_intent(
+                action=action,
+                notation_token=notation_token,
+                meaning=meaning,
+                scope_kind=scope_kind,
+                scope_value=scope_value,
+                document=document,
+                document_type=document_type,
+                region=region,
+                entry_id=entry_id,
+                authority=authority,
+                parse_revision_id=parse_revision_id,
+                valid_from=valid_from,
+                valid_until=valid_until,
+                resolution_kind=resolution_kind,
+                candidate_id=candidate_id,
+                reason=reason,
+                actor=actor,
+                note=note,
+                basis=basis,
+            ),
+        )
+
+
+@mcp.tool()
+def apply_review_action(
+    action: str,
+    plan_token: str = "",
+    confirmed: bool = False,
+    notation_token: str = "",
+    meaning: str = "",
+    scope_kind: str = "",
+    scope_value: str = "",
+    document: str = "",
+    document_type: str = "",
+    region: str = "",
+    entry_id: str = "",
+    authority: str = "",
+    parse_revision_id: str = "",
+    valid_from: str = "",
+    valid_until: str = "",
+    resolution_kind: str = "",
+    candidate_id: str = "",
+    reason: str = "",
+    actor: str = "",
+    note: str = "",
+    basis: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Apply a previewed review action once it is explicitly confirmed."""
+
+    intent = _review_intent(
+        action=action,
+        notation_token=notation_token,
+        meaning=meaning,
+        scope_kind=scope_kind,
+        scope_value=scope_value,
+        document=document,
+        document_type=document_type,
+        region=region,
+        entry_id=entry_id,
+        authority=authority,
+        parse_revision_id=parse_revision_id,
+        valid_from=valid_from,
+        valid_until=valid_until,
+        resolution_kind=resolution_kind,
+        candidate_id=candidate_id,
+        reason=reason,
+        actor=actor,
+        note=note,
+        basis=basis,
+    )
+    with _review_index() as index:
+        state = _durable_state()
+        if not confirmed:
+            plan = build_review_plan(state, index, **intent)
+            plan["limitations"] = [
+                *plan["limitations"],
+                "未收到 confirmed=true：本次调用没有写入任何状态。",
+            ]
+            return plan
+        return build_review_application(state, index, plan_token=plan_token, **intent)
+
+
+@mcp.tool()
+def review_history(
+    subject_type: str = "",
+    subject_id: str = "",
+    action: str = "",
+    limit: int = 200,
+) -> dict[str, object]:
+    """Return the append-only review events, oldest first."""
+
+    return read_review_history(
+        _durable_state(),
+        subject_type=subject_type or None,
+        subject_id=subject_id or None,
+        action=action or None,
+        limit=limit,
+    )
+
+
+def _durable_state() -> DurableState:
+    return DurableState(_project_root())
+
+
+def _review_index() -> Any:
+    """The shared index a review call reads candidates from, when there is one."""
+
+    try:
+        database_path = _database_path()
+    except (RuntimeError, FileNotFoundError):
+        return nullcontext(None)
+    return SharedIndexRead(database_path)
 
 
 def _database_path() -> Path:

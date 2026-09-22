@@ -23,6 +23,7 @@ logical document ──► source revision ──► parse revision ──► pu
 <项目根>/.design-state/          # 持久状态，可用 GAME_DESIGN_STATE_DIR 覆盖
 ├── manifest.json                # 小型索引：文档、来源/解析修订列表、active parse revision
 ├── dictionary.json              # 人工确认字典（含 confirmed_at / confirmed_by）
+├── notation.json                # 已确认的记法含义（范围 + 审核状态 + 修正链）
 ├── journal/
 │   ├── source_revisions.jsonl   # append-only
 │   ├── parse_revisions.jsonl

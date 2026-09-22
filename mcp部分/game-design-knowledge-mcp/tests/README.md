@@ -42,3 +42,9 @@
 - `test_evidence_package.py`：unit id 只接受 `evidence:<id>` / `image:<id>`，路径与行选择器一律拒绝；section 过滤、未知层报错；asset reference 由索引目录名与相对路径推导、路径不会被误认、跨索引不相等；Display Locator 文案；cursor 只能来自上一页。
 - `test_mcp_evidence_package.py`：正文单元把 statement 与来源引用分层，缺层报 `unit_is_not_an_image` 而不是空数组；图片单元的逐区域 / 逐元素 / 逐关系条目都能回溯到 Source / Parse Revision 与原始区域；分页按层展开且页边界不拆断来源关联；`include_v2_metadata` 是显式开关，默认响应不含任何 V2 字段；`get_asset` 只认本索引签发的引用并校验内容哈希，传路径会被拒；批量部分成功保留已取到的包；`get_processing_manifest` 与 `index_status.processing` 同源并给出 degradation。
 - `test_mcp_document_import.py`：独立 PNG 的预览 / 确认 / 落盘 / 登记（`document_type=image`、`relationship_id=standalone`），同名图片一律拒绝覆盖，以及批次失败后来源与旧索引可恢复。
+
+策划记法字典与人工审核的回归测试：
+
+- `test_notation_dictionary.py`：范围规范化与越界拒绝（绝对路径、盘符、`..`）、驳回的箭头始终是候选而从不成为字典条目、单个区域的确认不外溢到别处、`document_type` 范围只回答该类型、两个来源分歧必须留下裁决、更高来源可记为 authority、外部常识与项目读法并排隔离，以及新修订把旧确认变成 migration candidate。
+- `test_review_actions.py`：应用必须携带预览返回的那一个 token、字典移动后 token 立即失效、`correct` 把旧值留在记录上、`reject` 之后可被后续事件推翻、拒绝候选只写日志、`ignore` 静默候选而不确认任何东西，以及整串动作前后派生索引与源文件的字节不变。
+- `test_mcp_review.py`：五个工具经 MCP 暴露、`confirm` 同时需要 token 与确认标志、token 不再匹配时被拒、候选可被拒绝且不触碰字典。

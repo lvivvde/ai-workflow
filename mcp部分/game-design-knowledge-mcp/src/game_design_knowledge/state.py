@@ -33,6 +33,14 @@ from .revisions import (
     parse_revision_id,
     source_revision_id,
 )
+from .notation import (
+    CONFIRMED as NOTATION_CONFIRMED,
+    NOTATION_DICTIONARY_NAME,
+    REJECTED as NOTATION_REJECTED,
+    SUPERSEDED as NOTATION_SUPERSEDED,
+    empty_notation_dictionary,
+    validate_entry as validate_notation_entry,
+)
 
 
 STATE_SCHEMA_VERSION = 1
@@ -289,6 +297,10 @@ class DurableState:
         return self.directory / DICTIONARY_NAME
 
     @property
+    def notation_path(self) -> Path:
+        return self.directory / NOTATION_DICTIONARY_NAME
+
+    @property
     def journal_directory(self) -> Path:
         return self.directory / JOURNAL_DIRECTORY
 
@@ -441,6 +453,53 @@ class DurableState:
 
         return self._mutate(mutate)
 
+    # -- designer notation dictionary ------------------------------------
+
+    def read_notation(self) -> dict[str, Any]:
+        """The notation meanings a person confirmed, and nothing provisional."""
+
+        if not self.notation_path.is_file():
+            return empty_notation_dictionary()
+        payload = self._read_json(self.notation_path)
+        if not isinstance(payload, Mapping):
+            raise StateError(f"{self.notation_path} must contain a JSON object")
+        dictionary = dict(payload)
+        dictionary.setdefault("entry_schema_version", 1)
+        dictionary.setdefault("dictionary_version", None)
+        dictionary.setdefault("updated_at", None)
+        entries = dictionary.get("entries") or []
+        if not isinstance(entries, list):
+            raise StateError("The notation dictionary needs an entries list")
+        for entry in entries:
+            try:
+                validate_notation_entry(entry)
+            except ValueError as error:
+                raise StateError(f"Unusable notation entry: {error}") from error
+        dictionary["entries"] = [dict(entry) for entry in entries]
+        return dictionary
+
+    def write_notation(self, dictionary: Mapping[str, Any]) -> dict[str, Any]:
+        entries = dictionary.get("entries") or []
+        if not isinstance(entries, list):
+            raise StateError("The notation dictionary needs an entries list")
+        for entry in entries:
+            try:
+                validate_notation_entry(entry)
+            except ValueError as error:
+                raise StateError(f"Refusing to write a notation entry: {error}") from error
+        payload = {
+            "entry_schema_version": int(
+                dictionary.get("entry_schema_version") or 1
+            ),
+            "dictionary_version": dictionary.get("dictionary_version")
+            or empty_notation_dictionary()["dictionary_version"],
+            "updated_at": _now(),
+            "entries": [dict(entry) for entry in entries],
+        }
+        self._atomic_write_json(self.notation_path, payload)
+        return payload
+
+    # -- published revision bundles --------------------------------------
     def documents(self) -> dict[str, DocumentRecord]:
         manifest = self.load()
         return {
@@ -889,6 +948,10 @@ class DurableState:
                 "review_events": 0,
                 "dictionary_entries": 0,
                 "dictionary_aliases": 0,
+                "notation_entries": 0,
+                "notation_confirmed": 0,
+                "notation_superseded": 0,
+                "notation_rejected": 0,
                 "archived_objects": 0,
                 "archived_bytes": 0,
                 "bundles": 0,
@@ -896,6 +959,7 @@ class DurableState:
 
         manifest = self.load()
         dictionary = self.read_dictionary()
+        notation = self.read_notation()
         active = manifest.documents.values()
         return {
             "state_schema_version": manifest.state_schema_version,
@@ -917,6 +981,10 @@ class DurableState:
             "dictionary_aliases": sum(
                 len(entry.get("aliases") or ()) for entry in dictionary["entries"]
             ),
+            "notation_entries": len(notation["entries"]),
+            "notation_confirmed": _notation_count(notation, NOTATION_CONFIRMED),
+            "notation_superseded": _notation_count(notation, NOTATION_SUPERSEDED),
+            "notation_rejected": _notation_count(notation, NOTATION_REJECTED),
             "archived_objects": _count_files(self.archive_directory),
             "archived_bytes": _directory_bytes(self.archive_directory),
             "bundles": len(self.bundle_ids()),
@@ -1088,6 +1156,14 @@ def _check(name: str, passed: bool, detail: str) -> dict[str, Any]:
     return {"check": name, "passed": bool(passed), "detail": detail}
 
 
+def _notation_count(dictionary: Mapping[str, Any], status: str) -> int:
+    return sum(
+        1
+        for entry in dictionary.get("entries") or []
+        if str(entry.get("status")) == str(status)
+    )
+
+
 def _count_files(directory: Path) -> int:
     if not directory.is_dir():
         return 0
@@ -1129,6 +1205,7 @@ __all__ = [
     "LOCK_NAME",
     "LOCK_STALE_SECONDS",
     "MANIFEST_NAME",
+    "NOTATION_DICTIONARY_NAME",
     "PARSE_REVISION_JOURNAL",
     "ParseRevisionRecord",
     "REVIEW_EVENT_JOURNAL",
@@ -1141,5 +1218,7 @@ __all__ = [
     "StateManifest",
     "StateVersionError",
     "empty_dictionary",
+    "empty_notation_dictionary",
     "state_directory_for",
+    "validate_notation_entry",
 ]

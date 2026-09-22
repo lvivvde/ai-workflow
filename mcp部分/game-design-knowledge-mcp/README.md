@@ -174,6 +174,7 @@ MCP 客户端配置示例：
 |---|---|
 | 查询图片 | `search_images`、`get_image_context` |
 | 分层证据包与资产 | `get_evidence_package`、`get_evidence_packages`、`get_asset`、`get_processing_manifest` |
+| 记法字典与人工审核 | `notation_dictionary`、`resolve_notation`、`plan_review_action`、`apply_review_action`、`review_history` |
 | 查询正文证据 | `search_evidence`、`get_evidence` |
 | 查询配置 | `search_config_cells`、`get_sheet_range` |
 | 查询玩法 | `find_feature`、`get_feature_evidence` |
@@ -201,6 +202,14 @@ MCP 客户端配置示例：
 ## 人工玩法目录
 
 目录模板位于 [`knowledge/catalog.json`](knowledge/catalog.json)，填写规则见 [`docs/catalog.md`](docs/catalog.md)。别名必须提供 `name`、`confirmed_at` 和 `confirmed_by`，查询工具不会自动修改该文件。索引源可以是项目根目录、`knowledge/` 或 `knowledge/docs/`。
+
+## 策划记法字典与人工审核
+
+流程图里的箭头、圈住分支的花括号、只在一张图的角落成立的图例，这些速记的含义写进 `.design-state/notation.json`，与别名同属人工确认结果：不进推导索引，也不改源文档。
+
+含义必须带范围（`project` / `document_type` / `document` / `region`），范围之外不会被顺手继承；索引提出的读法只是候选，永远不能当作 Project Fact。存在分歧时答案停在 `ambiguous`，必须用 `resolve_conflict` 记录一次裁决（按来源权威，或人工选择）。
+
+写操作一律两步：`plan_review_action` 先给预览与 `plan_token`，`apply_review_action` 带同一 token 且 `confirmed=true` 才落盘；每次应用先追加一条不可变 Review Event、再物化视图。新修订不会自动继承旧确认，只会产生 migration candidate。完整契约见 [`docs/notation.md`](docs/notation.md)。
 
 ## 文档证据政策
 
@@ -238,4 +247,5 @@ $env:GAME_DESIGN_OCR_TIMEOUT = "60"
 - [`docs/revisions.md`](docs/revisions.md)：不可变修订、快照发布、持久状态与 schema 迁移。
 - [`docs/processing.md`](docs/processing.md)：处理阶段、指纹与缓存契约、能力包与降级语义。
 - [`docs/ocr.md`](docs/ocr.md)：区域级 OCR 的分层输出、三类置信度、关键标记评分与状态映射。
+- [`docs/notation.md`](docs/notation.md)：记法字典的范围与来源优先级、Review Action 预览令牌、冲突裁决与版本迁移。
 - [`evaluation/README.md`](evaluation/README.md)：分层评测协议、语料格式和 Release-blocking invariants。

@@ -85,6 +85,23 @@ get_processing_manifest()
 
 `get_evidence_package` 以 `evidence:<id>` / `image:<id>` 为锚点，把 source、statement、transcription、visual_interpretation、notation、explanation、uncertainties 分层返回，并整份带上 provenance 与逐层 unavailable；`get_asset` 只接受索引签发的 Asset Reference，不接受任何文件路径；`get_processing_manifest` 返回运行清单、逐 stage 尝试与 degradation 事实。四个工具都是只读新增，V1 工具在未显式请求 V2 元数据时字段与默认行为不变，详见 [`evidence-package.md`](evidence-package.md)。
 
+策划记法字典与人工审核：
+
+```text
+notation_dictionary(document="", include_history=False, limit=200)
+resolve_notation(notation_token, document, document_type="", region="",
+                 parse_revision_id="", external_common_knowledge="")
+plan_review_action(action, notation_token="", meaning="", scope_kind="",
+                   scope_value="", document="", document_type="", region="",
+                   entry_id="", authority="", parse_revision_id="", ...)
+apply_review_action(action, plan_token="", confirmed=False, ...)
+review_history(subject_type="", subject_id="", action="", limit=200)
+```
+
+`notation_dictionary` 与 `resolve_notation` 只读：前者把已确认条目、候选与迁移候选分开放，后者回答单个记号在某个范围内的含义。已确认含义写入 Durable Project State，既不进推导索引也不改源文档；索引提出的读法一律是 candidate，不参与回答、也不能被引用为项目事实。确认按 `project` / `document_type` / `document` / `region` 四档**字面**范围生效，范围外不继承；新 Parse Revision 只产生 migration candidate，必须重新做一次显式审核。
+
+`plan_review_action`、`apply_review_action`、`review_history` 是写侧：每个写入动作先返回 preview 与 `plan_token`，只有带同一 token 且 `confirmed=True` 才应用；token 覆盖这次决定的内容与写入前的字典摘要，字典一变即失效。每次应用先写 append-only Review Event、再物化视图，记录操作者、时间、范围、前后值、理由与依据；拒绝、忽略候选只写日志。五个动作为 `confirm`、`correct`、`reject`、`ignore`、`resolve_conflict`。详见 [`notation.md`](notation.md)。
+
 三个写入工具遵循 [`import-policy.md`](import-policy.md)：预览不写入；导入必须携带未失效的计划令牌和明确确认；目标目录固定且禁止覆盖；建库失败时恢复文件并保留旧索引。
 
 `capability_status` 只读，报告本地能力包与本机资源，不安装、不下载任何东西。

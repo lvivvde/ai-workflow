@@ -29,6 +29,7 @@ import time
 from typing import Any, Callable
 
 from .revisions import file_sha256
+from .run_records import profile_budget
 
 
 PACK_STATUSES = (
@@ -798,9 +799,8 @@ class CapabilityRuntime:
             ],
             "residency": self.residency(),
             "limits": {
-                "ocr_concurrency": 1 if self.profile == "baseline" else 2,
-                "heavy_jobs_concurrent": 1,
-                "native_parsing_concurrent": True,
+                # One source of truth: the profile's budget in run_records.
+                **profile_budget(self.profile),
             },
             "policy": {
                 "downloads": "never automatic; install explicitly from a local directory",

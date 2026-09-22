@@ -1,0 +1,38 @@
+{
+  "builtin_components": [],
+  "idle_timeout_seconds": 300.0,
+  "license": "MIT (Ollama); Apache-2.0 (Qwen2.5-VL)",
+  "model_artifacts": [
+    {
+      "purpose": "pins the runtime, model, and quantization this pack was built for",
+      "relative_path": "qwen2.5-vl-3b/pin.json",
+      "sha256": "bf32fc558e0e23b0d983ea04f55552c79a0fdeb25c192a1e5afcb0a8d0032fa6"
+    }
+  ],
+  "name": "visual",
+  "notes": [
+    "Low-memory mode unloads the vision model after every batch.",
+    "The model loads on demand and is never kept as an unexplained background process."
+  ],
+  "optional": true,
+  "purpose": "Ollama with a small Qwen vision model for coarse image explanation. Disabled by default and never authoritative project evidence.",
+  "python_artifacts": [
+    {
+      "distribution": "ollama",
+      "module": "ollama",
+      "purpose": "local model runtime",
+      "version": "0.3.3"
+    }
+  ],
+  "requirements": {
+    "cpu_cores": 8,
+    "free_disk_gb": 20.0,
+    "ram_gb": 16.0
+  },
+  "sizes_mb": {
+    "download": 3200.0,
+    "installed": 3400.0
+  },
+  "tier": "visual",
+  "version": "1.0.0"
+}

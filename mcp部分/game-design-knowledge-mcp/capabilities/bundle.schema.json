@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Game Design Knowledge Offline Capability Bundle",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["bundle_version", "platform", "packs"],
+  "properties": {
+    "bundle_version": { "const": 1 },
+    "platform": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["os", "architecture", "python"],
+      "properties": {
+        "os": { "type": "string", "minLength": 1 },
+        "architecture": { "type": "string", "minLength": 1 },
+        "python": { "type": "string", "minLength": 1 }
+      }
+    },
+    "packs": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "enum": ["core", "enhanced_ocr", "visual"] },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["version", "wheels", "models"],
+        "properties": {
+          "version": { "type": "string", "minLength": 1 },
+          "wheels": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["distribution", "version", "filename", "sha256"],
+              "properties": {
+                "distribution": { "type": "string", "minLength": 1 },
+                "version": { "type": "string", "minLength": 1 },
+                "filename": { "type": "string", "minLength": 1 },
+                "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+              }
+            }
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["relative_path", "sha256"],
+              "properties": {
+                "relative_path": { "type": "string", "minLength": 1 },
+                "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

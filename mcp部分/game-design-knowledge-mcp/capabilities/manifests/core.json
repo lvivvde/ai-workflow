@@ -1,0 +1,47 @@
+{
+  "builtin_components": [
+    "ooxml-parser",
+    "sqlite-fts5-store",
+    "atomic-snapshot-publisher"
+  ],
+  "idle_timeout_seconds": 300.0,
+  "license": "Apache-2.0 (OpenCV, ONNX Runtime, RapidOCR); MIT (this project)",
+  "model_artifacts": [],
+  "name": "core",
+  "notes": [
+    "The builtin components ship with the project itself; only the OCR artifacts have to be installed."
+  ],
+  "optional": false,
+  "purpose": "Deterministic OOXML parsing, SQLite/FTS storage, OpenCV geometry, and RapidOCR on ONNX Runtime for ordinary image text.",
+  "python_artifacts": [
+    {
+      "distribution": "opencv-python",
+      "module": "cv2",
+      "purpose": "deterministic image geometry",
+      "version": "4.10.0.84"
+    },
+    {
+      "distribution": "rapidocr-onnxruntime",
+      "module": "rapidocr_onnxruntime",
+      "purpose": "core OCR engine",
+      "version": "1.3.24"
+    },
+    {
+      "distribution": "onnxruntime",
+      "module": "onnxruntime",
+      "purpose": "CPU inference runtime",
+      "version": "1.19.2"
+    }
+  ],
+  "requirements": {
+    "cpu_cores": 4,
+    "free_disk_gb": 4.0,
+    "ram_gb": 8.0
+  },
+  "sizes_mb": {
+    "download": 420.0,
+    "installed": 1150.0
+  },
+  "tier": "core",
+  "version": "1.0.0"
+}

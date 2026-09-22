@@ -120,6 +120,19 @@ uv run game-design-knowledge capabilities
 uv run game-design-knowledge index . --output .index\knowledge --low-memory
 ```
 
+没有任何网络的机器上，能力包用预下载的离线包安装，全程 `--no-index`：先诊断本机、再校验包、再按哈希安装，卸载只删模型文件。
+
+```powershell
+uv run game-design-knowledge capability status --profile baseline
+uv run game-design-knowledge capability doctor --bundle D:\bundles\gdk-2026.09 --pack core
+uv run game-design-knowledge capability plan --bundle D:\bundles\gdk-2026.09 --pack core
+uv run game-design-knowledge capability install --bundle D:\bundles\gdk-2026.09 --pack core --confirm
+uv run game-design-knowledge capability uninstall --pack visual --confirm
+uv run game-design-knowledge capability baseline --profile baseline --output .baseline\windows\baseline.jsonl
+```
+
+`status`、`doctor`、`plan`、`install`、`verify`、`uninstall`、`manifests`、`baseline` 八个子命令的包格式、资源预算、运行记录与 Windows 验收清单见 [`docs/capabilities.md`](docs/capabilities.md)。
+
 ## 不可变修订与持久状态
 
 派生索引可以随时删除重建；任何"人做过决定"的东西都不放在里面：
@@ -272,6 +285,7 @@ $env:GAME_DESIGN_OCR_TIMEOUT = "60"
 - [`docs/catalog.md`](docs/catalog.md)：正式玩法与别名的人工确认格式。
 - [`docs/revisions.md`](docs/revisions.md)：不可变修订、快照发布、持久状态与 schema 迁移。
 - [`docs/processing.md`](docs/processing.md)：处理阶段、指纹与缓存契约、能力包与降级语义。
+- [`docs/capabilities.md`](docs/capabilities.md)：离线能力包格式与校验、安装与卸载、Profile 资源预算与运行记录、Windows 验收清单。
 - [`docs/ocr.md`](docs/ocr.md)：区域级 OCR 的分层输出、三类置信度、关键标记评分与状态映射。
 - [`docs/notation.md`](docs/notation.md)：记法字典的范围与来源优先级、Review Action 预览令牌、冲突裁决与版本迁移。
 - [`docs/explanation.md`](docs/explanation.md)：三档 Explanation Profile、Atom 契约、措辞纪律、冲突与缺口、Source-as-Data 边界、Validator 与分页。

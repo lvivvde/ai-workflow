@@ -123,6 +123,8 @@ tesseract (compatibility, V1 behaviour)
 
 `visual` 包的模型 pin（运行时 / 模型 / 量化）随包发布，其 SHA256 就是对 `visual_model_pin_bytes()` 实际字节取的哈希。
 
+完全离线的做法（预下载 wheel 与模型、bundle 校验、安装、卸载、Profile 资源预算与运行记录）见 [`capabilities.md`](capabilities.md)：那里把“本机能不能装”这件事独立成一次可复查的诊断，而不是散落在安装脚本里。
+
 ## 驻留与资源预算
 
 `CapabilityRuntime` 负责加载与释放：

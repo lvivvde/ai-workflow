@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- 引入不可变修订链：Logical Document、Source Revision（内容寻址归档）、Parse Revision 与 Published Revision Bundle，同路径内容变化只新增修订、不覆盖历史。
+- 索引改为不可变快照 + `CURRENT.json` 原子发布，保留 Active 与 Last Known Good；构建失败、中断或 Windows 文件占用时旧快照继续可读，未校验快照不会成为 active。
+- 新增持久状态目录 `.design-state/`（Review Events、确认字典、逻辑文档身份），删除并重建派生索引不再丢失人工确认结果。
+- `index_status` 增加 `freshness`，并新增 `index_freshness` 工具，按 source / durable state / parse / lexical / semantic / explanation 六层分别报告状态、版本和下一步动作。
+- Schema 升级到 v3，并提供 v2 → v3 显式迁移、迁移前备份与失败还原；未知 schema 版本显式拒绝而不静默误读。
 - 所有 shared-index 读取工具统一返回 freshness 状态，包括 `not_found`、`ambiguous` 和图片查询路径。
 - 单次查询复用一个 SQLite 连接和 freshness snapshot；源文档或目录过期时统一返回 `status=stale`。
 

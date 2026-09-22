@@ -38,7 +38,8 @@ AI 不得跳过预览，不得自行设置 `confirmed=true`，也不得把“继
 - 导入工具只接受普通 DOCX/XLSX 文件，单次最多 100 个。
 - 拒绝符号链接和来自 `.git/`、`.venv/`、`.index/` 的输入。
 - 文件操作完成后，从 `GAME_DESIGN_PROJECT_ROOT` 原子重建 `GAME_DESIGN_INDEX_DIR`。
-- 解析或建库失败时恢复本次复制/移动，旧 SQLite 继续可用。
+- 索引写入不可变快照，校验通过后才发布；发布失败时旧 SQLite 继续可用。
+- 解析或建库失败时恢复本次复制/移动。修订登记在索引发布之后进行，因此持久状态出问题不会回滚已经发布成功的索引。
 - 禁止 AI 直接执行 SQL 修改正式数据库。
 - 成功后原始资料、`knowledge/catalog.json`（如有变化）和 `.index/knowledge/` 必须处于同一个 Git 提交。
 

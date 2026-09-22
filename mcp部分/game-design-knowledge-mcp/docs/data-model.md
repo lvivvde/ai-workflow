@@ -5,10 +5,15 @@ SQLite 是可删除、可重建的派生索引。正式 `.index/knowledge` 会�
 ## Schema 版本
 
 ```sql
-PRAGMA user_version = 2;
+PRAGMA user_version = 3;
 ```
 
-版本不匹配时要求重建，不设计复杂的数据迁移。
+版本不匹配时不读取、不猜测：
+
+- v2 → v3 走显式迁移（`game-design-knowledge migrate`），迁移前自动备份，失败还原。
+- 更旧或更新的版本一律显式拒绝，并给出原因。
+
+详解见 [`revisions.md`](revisions.md)。
 
 ## documents
 
@@ -24,9 +29,37 @@ source_size
 source_mtime_ns
 source_sha256
 indexed_at
+logical_document_id
+source_revision_id
+parse_revision_id
 title
 status
 ```
+
+三个修订列是派生索引对不可变修订链的投影：`logical_document_id` 由项目相对路径推导，`source_revision_id` 绑定该文档的内容哈希，`parse_revision_id` 再绑定 schema 版本与 Processing Fingerprint。权威记录在项目的持久状态目录里。
+
+## source_revisions / parse_revisions
+
+派生索引里保留的修订投影，便于不打开持久状态就能回答"这行数据来自哪次解析"。
+
+```text
+source_revisions: source_revision_id, document_id, relative_path,
+                  content_sha256, byte_size, recorded_at
+parse_revisions:  parse_revision_id, source_revision_id, document_id,
+                  database_schema_version, processing_fingerprint,
+                  created_at, active
+```
+
+## index_builds / schema_migrations
+
+```text
+index_builds:      build_id, state, started_at, finished_at, note,
+                   database_sha256, processing_fingerprint,
+                   processing_manifest, parse_revisions
+schema_migrations: version, applied_at, description, backup_path
+```
+
+`index_builds` 记录每次构建实际使用的处理清单指纹和 parse revision 映射；`schema_migrations` 是显式迁移的审计记录。
 
 ## document_blocks
 
@@ -190,7 +223,7 @@ tokenize='trigram'
 
 ## 发布与增量更新
 
-完整构建写入同级 staging 目录并原子发布。
+完整构建写入同级不可变快照目录（`.index/.knowledge.build-*`），校验通过后才用重命名把数据库与资产换成 active，并原子更新 `CURRENT.json`。快照保留 Active 与 Last Known Good；未通过校验的快照不会成为 active，构建失败、进程中断或 Windows 文件占用都不影响旧索引可读。
 
 增量更新以 `source_sha256` 为边界：
 

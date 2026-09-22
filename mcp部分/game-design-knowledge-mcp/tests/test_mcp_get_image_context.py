@@ -13,6 +13,8 @@ import zipfile
 
 from mcp import Client
 
+from game_design_knowledge.indexer import SCHEMA_VERSION
+
 
 PNG_BYTES = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
@@ -127,7 +129,7 @@ class GetImageContextMcpTests(unittest.TestCase):
                     os.environ["GAME_DESIGN_INDEX_DIR"] = previous_index
 
             status = result.structured_content
-            self.assertEqual(status["schema_version"], 2)
+            self.assertEqual(status["schema_version"], SCHEMA_VERSION)
             self.assertEqual(status["documents_indexed"], 1)
             self.assertEqual(status["images_indexed"], 1)
             self.assertEqual(status["ocr_succeeded"], 0)

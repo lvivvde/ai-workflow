@@ -33,7 +33,10 @@ game-design-knowledge-mcp/
 - 索引 XLSX 原始值、公式、样式、合并范围和图片锚点。
 - 使用 SQLite FTS5 trigram 查询正文、配置、图片邻近文字和 OCR 文本。
 - 通过文件 SHA 增量复用未变化文档，并检测过期或已删除的来源。
-- 在 staging 中构建，成功后才发布；失败不会覆盖已有索引。
+- 在不可变快照中构建，校验通过后才原子发布；失败、中断或文件占用都不会覆盖已有索引，并保留 Last Known Good 快照。
+- 用 Logical Document → Source Revision → Parse Revision → Published Revision Bundle 记录来源链，来源哈希、处理清单和定位链路可回查。
+- 人工确认状态（Review Events、确认字典）放在可删除重建的派生索引之外。
+- 按 source / durable state / parse / lexical / semantic / explanation 六层分别报告新鲜度，不再只给一个 `is_stale`。
 - 返回 `found`、`not_found`、`ambiguous` 或 `stale`，并附带结构化出处。
 - 只识别人工目录中的正式名和已确认别名，不自动创建或联想外号。
 - 导入和重建共享索引必须先预览、再由用户明确确认。
@@ -93,6 +96,31 @@ uv run game-design-knowledge index . --output .index/knowledge
 
 `.index/knowledge` 可以随项目提交。源文档路径尽量保存为相对路径；换电脑或移动仓库后，只要内容 SHA256 不变，索引仍可复用。资料变化后，由维护者重建并把原文、SQLite 和 `assets/` 放在同一个 Git 提交中。
 
+构建过程是"写快照 → 校验 → 发布"三步：每次构建写入同级 `.index/.knowledge.build-*` 快照目录，校验 SQLite 完整性和 schema 版本后才用重命名替换 `.index/knowledge/knowledge.sqlite` 并写 `CURRENT.json`。发布失败时旧索引继续可读，未校验的快照永远不会成为 active。快照目录是本地恢复资料，不进入 Git。
+
+## 不可变修订与持久状态
+
+派生索引可以随时删除重建；任何"人做过决定"的东西都不放在里面：
+
+| 内容 | 位置 | 说明 |
+|---|---|---|
+| 逻辑文档 ID | `<项目根>/.design-state/manifest.json` | 由项目相对路径推导，换机器/换盘符后不变 |
+| Source Revision 归档 | `<项目根>/.design-state/archive/` | 按内容寻址保存原始字节，同哈希只存一份 |
+| Parse Revision / Review Events | `<项目根>/.design-state/journal/` | append-only JSONL，撤销是一次新事件 |
+| 确认字典 | `<项目根>/.design-state/dictionary.json` | 别名必须带 `confirmed_at`/`confirmed_by` |
+| Published Revision Bundle | `<项目根>/.design-state/bundles/` | 可用 `verify_bundle` 从 bundle 回查到归档字节和定位 |
+
+`.design-state` 是本机持久状态，默认不进 Git；随仓库提交的人工真源仍是 `knowledge/catalog.json` 和 `docs/`。目录位置可用 `GAME_DESIGN_STATE_DIR` 覆盖。删除 `.index` 或整个派生索引后重建，Review Events、确认字典和逻辑文档身份都不会丢失。
+
+索引 schema 当前为 `PRAGMA user_version = 3`。旧索引必须显式迁移，不能被静默误读：
+
+```powershell
+uv run game-design-knowledge migrate --plan --database .index\knowledge\knowledge.sqlite
+uv run game-design-knowledge migrate --database .index\knowledge\knowledge.sqlite
+```
+
+迁移前自动备份到 `.index/knowledge/schema-backups/`；迁移失败会还原备份。比当前版本更新的 schema 只会被拒绝，不会被旧代码改写。
+
 ## 启动 MCP Server
 
 先指定索引目录，再启动本地 stdio server：
@@ -128,10 +156,11 @@ MCP 客户端配置示例：
 | 查询配置 | `search_config_cells`、`get_sheet_range` |
 | 查询玩法 | `find_feature`、`get_feature_evidence` |
 | 检查索引 | `index_status` |
+| 分层新鲜度 | `index_freshness` |
 | 受控导入 | `plan_document_import`、`import_documents` |
 | 重建共享索引 | `rebuild_shared_index` |
 
-所有 shared-index 读取工具都会返回同一次读取对应的 `index_status`；只要源文档或人工目录已过期，顶层 `status` 就统一为 `stale`。
+所有 shared-index 读取工具都会返回同一次读取对应的 `index_status`；只要源文档或人工目录已过期，顶层 `status` 就统一为 `stale`。`index_status` 额外带 `freshness`，`index_freshness` 单独返回六层各自的状态、期望/实际版本、最近成功时间和建议动作。
 
 ## 第三方 AI 导入资料
 
@@ -176,4 +205,5 @@ $env:GAME_DESIGN_OCR_LANG = "chi_sim+eng"
 - [`docs/evidence-policy.md`](docs/evidence-policy.md)：查询时的事实与证据边界。
 - [`docs/import-policy.md`](docs/import-policy.md)：导入、确认、回滚和提交边界。
 - [`docs/catalog.md`](docs/catalog.md)：正式玩法与别名的人工确认格式。
+- [`docs/revisions.md`](docs/revisions.md)：不可变修订、快照发布、持久状态与 schema 迁移。
 - [`evaluation/README.md`](evaluation/README.md)：分层评测协议、语料格式和 Release-blocking invariants。

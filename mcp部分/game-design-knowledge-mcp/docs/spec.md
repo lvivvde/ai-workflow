@@ -34,10 +34,15 @@
 ### CLI
 
 ```text
-game-design-knowledge index <source> --output <index>
+game-design-knowledge index <source> --output <index> [--project-root <project>]
+game-design-knowledge migrate --database <index.sqlite> [--plan]
 ```
 
-CLI 继续使用 staging 构建，全部成功后才发布。
+CLI 写入同级不可变快照，校验通过后才发布；失败、中断或文件占用都不会替换已有索引。
+
+发布成功后，CLI 把本次构建的来源、解析修订与检索单元登记到项目持久状态。项目根默认从 `<root>/.index/<name>` 这种输出布局推断，也可以用 `--project-root` 显式指定；两者都给不出项目根时，索引仍然可用，只是不会被登记为项目持久状态。
+
+旧 schema 的索引不会被静默误读，必须用 `migrate` 显式迁移（先 `--plan` 预览，迁移前自动备份，失败还原）。
 
 ### MCP
 

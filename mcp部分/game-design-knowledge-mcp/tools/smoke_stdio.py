@@ -32,13 +32,19 @@ async def _run(index_directory: Path) -> dict[str, object]:
         if not content or "text" not in content[0]:
             raise RuntimeError(f"index_status returned no structured content: {payload}")
         structured = json.loads(content[0]["text"])
-    if structured.get("schema_version") != 2:
-        raise RuntimeError(f"Unexpected schema version: {structured}")
+    expected_schema_version = 3
+    if structured.get("schema_version") != expected_schema_version:
+        raise RuntimeError(
+            "Unexpected schema version "
+            f"{structured.get('schema_version')}, expected {expected_schema_version}; "
+            "migrate the index with `game-design-knowledge migrate` first"
+        )
     if structured.get("is_stale") is not False:
         raise RuntimeError(f"Smoke-test index is stale: {structured}")
     tool_names = sorted(tool.name for tool in tools_result.tools)
     required_tools = {
         "index_status",
+        "index_freshness",
         "plan_document_import",
         "import_documents",
         "rebuild_shared_index",

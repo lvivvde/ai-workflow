@@ -12,8 +12,19 @@ import re
 import shutil
 import sqlite3
 import subprocess
+from typing import Iterable
 import xml.etree.ElementTree as ET
 import zipfile
+
+from . import revisions
+from .migration import (
+    TARGET_SCHEMA_VERSION,
+    SchemaVersionError,
+    ensure_revision_schema,
+    refusal_message,
+)
+from .revisions import ProcessingManifest, ProcessingStage
+from .state import state_directory_for
 
 
 RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
@@ -22,18 +33,53 @@ OFFICE_REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relations
 SPREADSHEET_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 SPREADSHEET_DRAWING_NS = "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"
 WORD_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = TARGET_SCHEMA_VERSION
+SOURCE_PATTERNS = ("*.docx", "*.xlsx")
+EXCLUDED_SOURCE_DIRECTORIES = frozenset(
+    {
+        ".git",
+        ".index",
+        ".venv",
+        ".mypy_cache",
+        ".pytest_cache",
+        "__pycache__",
+        "node_modules",
+    }
+)
+DEFAULT_PROCESSING_MANIFEST = ProcessingManifest(
+    stages=(
+        ProcessingStage(
+            name="source_parse",
+            ruleset_version="v1",
+            output_schema_version=str(SCHEMA_VERSION),
+            handler="game_design_knowledge.indexer",
+            handler_version="v1",
+        ),
+    ),
+    notes=(
+        "V1 extracts documents in one pass; V2-03 replaces this with the staged pipeline.",
+    ),
+)
 MAX_OOXML_MEMBERS = 10_000
 MAX_OOXML_MEMBER_SIZE = 128 * 1024 * 1024
 MAX_OOXML_TOTAL_SIZE = 512 * 1024 * 1024
 MAX_OOXML_COMPRESSION_RATIO = 200
 
 
-def index_documents(source: Path, output: Path) -> dict[str, int]:
+def index_documents(
+    source: Path,
+    output: Path,
+    *,
+    processing_manifest: ProcessingManifest | None = None,
+    extra_excluded_directories: Iterable[str] | None = None,
+) -> dict[str, int]:
     source = source.resolve()
     output.mkdir(parents=True, exist_ok=True)
     assets_dir = output / "assets"
     assets_dir.mkdir(exist_ok=True)
+    manifest = processing_manifest or DEFAULT_PROCESSING_MANIFEST
+    fingerprint = manifest.fingerprint
+    excluded = excluded_directories(source, extra_excluded_directories)
 
     documents_indexed = 0
     images_indexed = 0
@@ -47,21 +93,23 @@ def index_documents(source: Path, output: Path) -> dict[str, int]:
     assets_removed = 0
     current_paths = {
         _stored_source_path(path, output)
-        for pattern in ("*.docx", "*.xlsx")
-        for path in source.rglob(pattern)
+        for pattern in SOURCE_PATTERNS
+        for path in source_documents(source, pattern, excluded)
     }
     with closing(sqlite3.connect(output / "knowledge.sqlite")) as connection, connection:
         existing_schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
         if existing_schema_version not in (0, SCHEMA_VERSION):
-            raise RuntimeError(
-                f"Index schema version {existing_schema_version} is incompatible with "
-                f"version {SCHEMA_VERSION}; delete the derived index and rebuild it"
-            )
+            raise SchemaVersionError(refusal_message(existing_schema_version))
         _create_schema(connection)
         features_indexed, aliases_indexed = _index_catalog(source, output, connection)
-        for document_path in sorted(source.rglob("*.docx")):
+        for document_path in source_documents(source, "*.docx", excluded):
             document_id, action = _prepare_document(
-                connection, document_path, "docx", output
+                connection,
+                document_path,
+                "docx",
+                output,
+                logical_root=source,
+                processing_fingerprint=fingerprint,
             )
             documents_indexed += 1
             documents_added += action == "added"
@@ -168,9 +216,14 @@ def index_documents(source: Path, output: Path) -> dict[str, int]:
                 ocr_succeeded += ocr_status == "succeeded"
                 ocr_failed += ocr_status == "failed"
                 ocr_unavailable += ocr_status == "unavailable"
-        for document_path in sorted(source.rglob("*.xlsx")):
+        for document_path in source_documents(source, "*.xlsx", excluded):
             document_id, action = _prepare_document(
-                connection, document_path, "xlsx", output
+                connection,
+                document_path,
+                "xlsx",
+                output,
+                logical_root=source,
+                processing_fingerprint=fingerprint,
             )
             documents_indexed += 1
             documents_added += action == "added"
@@ -354,7 +407,10 @@ def _create_schema(connection: sqlite3.Connection) -> None:
             source_size INTEGER NOT NULL,
             source_mtime_ns INTEGER NOT NULL,
             source_sha256 TEXT NOT NULL,
-            indexed_at TEXT NOT NULL
+            indexed_at TEXT NOT NULL,
+            logical_document_id TEXT,
+            source_revision_id TEXT,
+            parse_revision_id TEXT
         );
 
         CREATE UNIQUE INDEX IF NOT EXISTS documents_path_unique ON documents(path);
@@ -477,9 +533,10 @@ def _create_schema(connection: sqlite3.Connection) -> None:
             indexed_at TEXT NOT NULL
         );
 
-        PRAGMA user_version = 2;
+        PRAGMA user_version = 3;
         """
     )
+    ensure_revision_schema(connection)
 
 
 def _index_catalog(
@@ -574,23 +631,44 @@ def _required_catalog_text(record: dict[str, object], field: str) -> str:
 
 
 def _prepare_document(
-    connection: sqlite3.Connection, path: Path, document_type: str, output: Path
+    connection: sqlite3.Connection,
+    path: Path,
+    document_type: str,
+    output: Path,
+    *,
+    logical_root: Path | None = None,
+    processing_fingerprint: str = "",
 ) -> tuple[int, str]:
     stored_path = _stored_source_path(path, output)
-    source_hash = _file_sha256(path)
+    source_hash = revisions.file_sha256(path)
     source_stat = path.stat()
+    logical_id, source_revision, parse_revision = _revision_identities(
+        path, source_hash, logical_root, processing_fingerprint
+    )
     existing = connection.execute(
         "SELECT id, source_sha256 FROM documents WHERE path = ?", (stored_path,)
     ).fetchone()
     indexed_at = datetime.now(timezone.utc).isoformat()
     if existing is not None and existing[1] == source_hash:
+        # Reuse keeps the derived rows, but the revision identity is a pure
+        # function of the bytes and the pipeline, so it is refreshed either way.
         connection.execute(
             """
             UPDATE documents
-            SET source_size = ?, source_mtime_ns = ?, indexed_at = ?
+            SET source_size = ?, source_mtime_ns = ?, indexed_at = ?,
+                logical_document_id = ?, source_revision_id = ?,
+                parse_revision_id = ?
             WHERE id = ?
             """,
-            (source_stat.st_size, source_stat.st_mtime_ns, indexed_at, existing[0]),
+            (
+                source_stat.st_size,
+                source_stat.st_mtime_ns,
+                indexed_at,
+                logical_id,
+                source_revision,
+                parse_revision,
+                existing[0],
+            ),
         )
         return existing[0], "reused"
     action = "added"
@@ -601,8 +679,9 @@ def _prepare_document(
         """
         INSERT INTO documents(
             path, document_type, source_size, source_mtime_ns,
-            source_sha256, indexed_at
-        ) VALUES (?, ?, ?, ?, ?, ?)
+            source_sha256, indexed_at, logical_document_id,
+            source_revision_id, parse_revision_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             stored_path,
@@ -611,9 +690,60 @@ def _prepare_document(
             source_stat.st_mtime_ns,
             source_hash,
             indexed_at,
+            logical_id,
+            source_revision,
+            parse_revision,
         ),
     ).lastrowid
     return document_id, action
+
+
+def _revision_identities(
+    path: Path,
+    source_hash: str,
+    logical_root: Path | None,
+    processing_fingerprint: str,
+) -> tuple[str | None, str | None, str | None]:
+    """Derive the logical document, source revision, and parse revision ids."""
+
+    if logical_root is None:
+        return None, None, None
+    try:
+        logical_path = path.resolve().relative_to(logical_root.resolve()).as_posix()
+    except ValueError:
+        logical_path = path.name
+    logical_id = revisions.document_id(logical_path)
+    source_revision = revisions.source_revision_id(logical_id, source_hash)
+    if not processing_fingerprint:
+        return logical_id, source_revision, None
+    parse_revision = revisions.parse_revision_id(
+        source_revision,
+        database_schema_version=SCHEMA_VERSION,
+        processing_fingerprint_value=processing_fingerprint,
+    )
+    return logical_id, source_revision, parse_revision
+
+
+def excluded_directories(
+    source: Path, extra: Iterable[str] | None
+) -> frozenset[str]:
+    """Directories that never hold project documents, plus the durable state."""
+
+    names = set(EXCLUDED_SOURCE_DIRECTORIES)
+    names.add(state_directory_for(source).name)
+    names.update(str(name) for name in extra or ())
+    return frozenset(name for name in names if name)
+
+
+def source_documents(
+    source: Path, pattern: str, excluded: Iterable[str]
+) -> list[Path]:
+    blocked = set(excluded)
+    return sorted(
+        path
+        for path in source.rglob(pattern)
+        if not blocked.intersection(path.relative_to(source).parts[:-1])
+    )
 
 
 def _stored_source_path(path: Path, output: Path) -> str:
@@ -1064,14 +1194,6 @@ def _run_ocr(asset_path: Path) -> tuple[str, str, str | None]:
         error = completed.stderr.strip() or f"Tesseract exited with {completed.returncode}"
         return "failed", "", error
     return "succeeded", completed.stdout.strip(), None
-
-
-def _file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _read_shared_strings(archive: zipfile.ZipFile) -> list[str]:

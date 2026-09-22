@@ -53,7 +53,7 @@ uv run python tools/evaluate.py `
 | 层 | 状态 |
 |---|---|
 | `source_import` | 已测量：文档数、图片数、schema 版本、是否过期 |
-| `ocr_transcription` | 已测量降级计数；CER/WER 等文本指标等在 OCR 能力包落地后启用 |
+| `ocr_transcription` | 已测量：区域数、降级/回退/低质量计数、machine-supported 计数；CER/WER 与关键标记评分等 Golden Set（V2-12）提供带标注语料后启用 |
 | `layout_regions` | `unavailable`，当前构建未上报区域能力 |
 | `reading_order_relations` | `unavailable` |
 | `notation_resolution` | `unavailable` |

@@ -116,7 +116,10 @@ DEFAULT_PIPELINE: tuple[StageDefinition, ...] = (
         capability_pack="core",
         required=False,
         handler="pipeline.select_ocr",
-        ruleset_version="ocr-chain-v1",
+        # v2: the OCR stage now delivers regions, separated confidences, the
+        # quality gate, and the normalization suggestion beside the raw text.
+        ruleset_version="ocr-regions-v1",
+        output_schema_version="ocr-regions-v1",
     ),
     StageDefinition(
         name="layout",
@@ -764,7 +767,7 @@ class ProcessingRun:
         self.projection_input_sha256 = input_sha256
         self.projection_config = dict(config or {})
 
-    def record_projection(self, report: Mapping[str, int]) -> StageAttempt:
+    def record_projection(self, report: Mapping[str, Any]) -> StageAttempt:
         """Record the projection attempt; called inside the snapshot build."""
 
         if self.projection is not None:
@@ -797,7 +800,10 @@ class ProcessingRun:
             coverage={"documents": int(report.get("documents_indexed", 0))},
         )
         self.projection = attempt
-        self.projection_report = {str(key): int(value) for key, value in report.items()}
+        # The report is the indexer's own payload: its counters stay numbers, and
+        # any structured detail a later stage adds is carried through unchanged
+        # rather than being flattened into an int.
+        self.projection_report = {str(key): value for key, value in report.items()}
         self.add(attempt)
         return attempt
 

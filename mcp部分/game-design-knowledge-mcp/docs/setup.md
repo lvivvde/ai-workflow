@@ -341,7 +341,9 @@ uv sync --locked --verbose
 
 ### OCR 全部是 `unavailable`
 
-本机既没有 RapidOCR/PaddleOCR，也没有 Tesseract（`ocr` stage 会逐级记录被跳过的原因和版本，见 `index_status.processing` 与 `docs/processing.md`）。这不影响图片提取、标题搜索和位置查询。
+本机既没有 RapidOCR/PaddleOCR，也没有 Tesseract（`ocr` stage 会逐级记录被跳过的原因和版本，见 `index_status.processing`、`get_image_context` 与 [`ocr.md`](ocr.md)）。这不影响图片提取、标题搜索和位置查询。
+
+如果装了 RapidOCR 但仍然报 `models_missing`，是 ONNX 模型文件不在本地：把模型放到 `GAME_DESIGN_OCR_MODEL_DIR` 或包内 `models/` 后重建索引。构建期不会下载模型。
 
 ### `index_status.processing` 显示某些 stage 是 `unavailable`
 

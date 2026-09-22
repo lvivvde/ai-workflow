@@ -27,6 +27,7 @@ from game_design_knowledge.capabilities import (
 )
 from game_design_knowledge.ocr import (
     DEFAULT_CHAIN,
+    OcrEngine,
     RAPIDOCR_ENGINE,
     TESSERACT_ENGINE,
     select_engine,
@@ -399,13 +400,35 @@ class OcrDegradationChainTests(unittest.TestCase):
             self.assertIn("disabled by configuration", entry["detail"])
 
     def test_an_unimplemented_engine_is_never_reported_as_ready(self) -> None:
-        usable, detail = RAPIDOCR_ENGINE.usable()
+        declared = OcrEngine(
+            name="someday",
+            tier="core",
+            pack="core",
+            ruleset_version="someday-v1",
+            module="someday_ocr",
+            implemented=False,
+            owner_ticket="V2-99",
+        )
 
+        usable, detail = declared.usable()
         self.assertFalse(usable)
         self.assertIn("not implemented", detail)
-        status, _, error = RAPIDOCR_ENGINE.transcribe(Path("whatever.png"))
+        status, _, error = declared.transcribe(Path("whatever.png"))
         self.assertEqual(status, "unavailable")
         self.assertIn("not implemented", error or "")
+
+    def test_the_core_engine_is_honest_about_being_absent(self) -> None:
+        """V2-04 delivers RapidOCR, so "not implemented" is no longer its reason."""
+
+        usable, detail = RAPIDOCR_ENGINE.usable()
+
+        self.assertTrue(RAPIDOCR_ENGINE.implemented)
+        if RAPIDOCR_ENGINE.installed():
+            self.assertTrue(usable)
+            self.assertEqual(detail, "ready")
+        else:
+            self.assertFalse(usable)
+            self.assertIn("not installed", detail)
 
 
 if __name__ == "__main__":

@@ -8,9 +8,10 @@ import subprocess
 import sys
 import tempfile
 import unittest
-import zipfile
 
 from mcp import Client
+
+from document_fixtures import write_xlsx_with_image
 
 
 PNG_BYTES = base64.b64decode(
@@ -81,61 +82,7 @@ class GetXlsxImageContextMcpTests(unittest.TestCase):
 
     @staticmethod
     def _write_xlsx(path: Path) -> None:
-        workbook_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
- xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <sheets><sheet name="数值配置" sheetId="1" r:id="rId1"/></sheets>
-</workbook>
-"""
-        workbook_rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
-</Relationships>
-"""
-        sheet_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
- xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <sheetData><row r="5"><c r="C5" t="inlineStr"><is><t>伤害曲线示意图</t></is></c></row></sheetData>
-  <drawing r:id="rId2"/>
-</worksheet>
-"""
-        sheet_rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/>
-</Relationships>
-"""
-        drawing_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"
- xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
- xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <xdr:oneCellAnchor>
-    <xdr:from><xdr:col>2</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>4</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>
-    <xdr:pic><xdr:blipFill><a:blip r:embed="rId3"/></xdr:blipFill></xdr:pic>
-    <xdr:clientData/>
-  </xdr:oneCellAnchor>
-</xdr:wsDr>
-"""
-        drawing_rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/mockup.png"/>
-</Relationships>
-"""
-        content_types = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-  <Default Extension="xml" ContentType="application/xml"/>
-  <Default Extension="png" ContentType="image/png"/>
-</Types>
-"""
-        with zipfile.ZipFile(path, "w") as archive:
-            archive.writestr("[Content_Types].xml", content_types)
-            archive.writestr("xl/workbook.xml", workbook_xml)
-            archive.writestr("xl/_rels/workbook.xml.rels", workbook_rels)
-            archive.writestr("xl/worksheets/sheet1.xml", sheet_xml)
-            archive.writestr("xl/worksheets/_rels/sheet1.xml.rels", sheet_rels)
-            archive.writestr("xl/drawings/drawing1.xml", drawing_xml)
-            archive.writestr("xl/drawings/_rels/drawing1.xml.rels", drawing_rels)
-            archive.writestr("xl/media/mockup.png", PNG_BYTES)
+        write_xlsx_with_image(path, "伤害曲线示意图", PNG_BYTES)
 
 
 if __name__ == "__main__":

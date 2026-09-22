@@ -210,13 +210,18 @@ MCP 客户端配置示例：
 
 ## OCR
 
-当前版本使用系统中的 `tesseract` 命令，默认语言为 `chi_sim+eng`。可以通过环境变量覆盖：
+图片文字按引擎降级链处理：RapidOCR（core 能力包，ONNX Runtime）→ PaddleOCR（`enhanced_ocr`，需显式安装）→ 系统 `tesseract`（兼容回退）。链上每一步都会记录被跳过的原因和版本，`index_status.processing` 与 `get_image_context` 都能读到。
+
+结果保存在**区域**粒度：每个区域有边界框、原文（Raw Transcription）、规范化建议与逐 span 变更、以及分开的文字/区域/关键标记三类置信度。原文永不被规范化文本覆盖，也不生成单一总分。数字、百分比、ID、运算符、箭头和否定词会作为 Critical Transcription Tokens 单独评分。
+
+当前这条链在本机没有可用引擎时，行为与 V1 完全一致：文档和图片照常建立索引，图片记录为 `ocr_status=unavailable`。本项目不会自动安装系统级 OCR 软件，也不会在构建时下载模型——RapidOCR 的 ONNX 模型必须已经存在于 `GAME_DESIGN_OCR_MODEL_DIR` 或包内 `models/`。完整契约见 [`docs/ocr.md`](docs/ocr.md)。
+
+可以通过环境变量覆盖语言与超时：
 
 ```powershell
 $env:GAME_DESIGN_OCR_LANG = "chi_sim+eng"
+$env:GAME_DESIGN_OCR_TIMEOUT = "60"
 ```
-
-如果没有安装 Tesseract，文档和图片仍会正常建立索引，图片记录为 `ocr_status=unavailable`。本项目不会自动安装系统级 OCR 软件。
 
 ## 文档导航
 
@@ -228,4 +233,5 @@ $env:GAME_DESIGN_OCR_LANG = "chi_sim+eng"
 - [`docs/catalog.md`](docs/catalog.md)：正式玩法与别名的人工确认格式。
 - [`docs/revisions.md`](docs/revisions.md)：不可变修订、快照发布、持久状态与 schema 迁移。
 - [`docs/processing.md`](docs/processing.md)：处理阶段、指纹与缓存契约、能力包与降级语义。
+- [`docs/ocr.md`](docs/ocr.md)：区域级 OCR 的分层输出、三类置信度、关键标记评分与状态映射。
 - [`evaluation/README.md`](evaluation/README.md)：分层评测协议、语料格式和 Release-blocking invariants。

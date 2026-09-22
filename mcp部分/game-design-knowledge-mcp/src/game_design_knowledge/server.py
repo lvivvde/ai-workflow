@@ -16,6 +16,7 @@ from .ingest import (
 from .freshness import freshness_report
 from .capabilities import CapabilityRuntime
 from .index_revisions import processing_manifest, stage_attempt_summary
+from .ocr_normalization import extract_critical_tokens
 from .policy import EVIDENCE_POLICY
 from .shared_index import SharedIndexRead, index_status_for_database
 
@@ -918,7 +919,99 @@ def get_image_context(image_id: int) -> dict[str, object]:
         result["asset_path"] = str(
             (database_path.parent / str(result["asset_path"])).resolve()
         )
+        result["ocr"] = _image_ocr_detail(index, image_id)
         return index.complete(result)
+
+
+def _image_ocr_detail(index: SharedIndexRead, image_id: int) -> dict[str, object] | None:
+    """Region-level OCR for one image, or ``None`` on an index that predates it.
+
+    The transcription layer is returned whole -- raw text, the suggestion
+    proposed for each region, and the three confidences separately -- because a
+    caller needs to see *why* a reading is uncertain, and because an OCR
+    transcription never becomes source evidence on its own.
+    """
+
+    try:
+        run = index.fetchone(
+            """
+            SELECT id, requested_engine, engine, engine_version, tier,
+                   fallback_used, execution_status, quality_status, reason_code,
+                   detail, evidence_state, language, reading_order_source,
+                   region_count, reason_chain, duration_ms
+            FROM ocr_runs
+            WHERE image_id = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (image_id,),
+        )
+    except sqlite3.OperationalError:
+        return None
+    if run is None:
+        return None
+    regions = index.fetchall(
+        """
+        SELECT r.region_index, r.reading_order, r.bbox, r.text_raw,
+               r.text_confidence, r.region_confidence, r.key_mark_confidence,
+               r.language, n.normalized_text, n.changes, n.ruleset_version
+        FROM ocr_regions AS r
+        LEFT JOIN ocr_normalizations AS n ON n.region_id = r.id
+        WHERE r.run_id = ?
+        ORDER BY r.reading_order
+        """,
+        (int(run["id"]),),
+    )
+    payload: dict[str, object] = {
+        "run": {
+            "requested_engine": run["requested_engine"],
+            "engine": run["engine"],
+            "engine_version": run["engine_version"],
+            "tier": run["tier"],
+            "fallback_used": bool(run["fallback_used"]),
+            "execution_status": run["execution_status"],
+            "quality_status": run["quality_status"],
+            "reason_code": run["reason_code"],
+            "detail": run["detail"],
+            "evidence_state": run["evidence_state"],
+            "language": run["language"],
+            "reading_order_source": run["reading_order_source"],
+            "duration_ms": run["duration_ms"],
+            "reason_chain": json.loads(run["reason_chain"] or "[]"),
+        },
+        "regions": [
+            {
+                "region_index": region["region_index"],
+                "reading_order": region["reading_order"],
+                "bbox": json.loads(region["bbox"]) if region["bbox"] else None,
+                "text": region["text_raw"],
+                "text_confidence": region["text_confidence"],
+                "region_confidence": region["region_confidence"],
+                "key_mark_confidence": region["key_mark_confidence"],
+                "language": region["language"],
+                "critical_tokens": [
+                    token.as_payload()
+                    for token in extract_critical_tokens(region["text_raw"])
+                ],
+                "normalization_suggestion": (
+                    {
+                        "suggestion_only": True,
+                        "ruleset_version": region["ruleset_version"],
+                        "normalized": region["normalized_text"],
+                        "changes": json.loads(region["changes"] or "[]"),
+                    }
+                    if region["normalized_text"] is not None
+                    else None
+                ),
+            }
+            for region in regions
+        ],
+        "evidence_boundary": (
+            "OCR output stays a transcription; it is not source evidence and is "
+            "only upgraded by a human confirmation or a source text layer."
+        ),
+    }
+    return payload
 
 
 @mcp.tool()

@@ -109,7 +109,77 @@ class SharedIndexRead:
             "catalog_is_stale": catalog_is_stale,
             "is_stale": stale_documents > 0 or catalog_is_stale,
         }
+        # Additive V2 detail: which engines ran, how the regions were graded, and
+        # whether anything had to fall back. The three counters above keep their
+        # V1 meaning.
+        self._status.update(self._ocr_detail(connection))
         return self._status
+
+    @staticmethod
+    def _ocr_detail(connection: sqlite3.Connection) -> dict[str, object]:
+        """Region-level OCR summary; empty for an index that predates it."""
+
+        empty: dict[str, object] = {
+            "ocr_runs": 0,
+            "ocr_regions": 0,
+            "ocr_normalizations": 0,
+            "ocr_fallbacks": 0,
+            "ocr_low_quality": 0,
+            "ocr_machine_supported": 0,
+            "ocr_engines": {},
+            "ocr_execution_statuses": {},
+        }
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        if not {"ocr_runs", "ocr_regions", "ocr_normalizations"}.issubset(tables):
+            return empty
+        summary = connection.execute(
+            """
+            SELECT
+                COUNT(*) AS runs,
+                COALESCE(SUM(fallback_used), 0) AS fallbacks,
+                COALESCE(
+                    SUM(reason_code = 'below_quality_threshold'), 0
+                ) AS low_quality,
+                COALESCE(SUM(evidence_state = 'machine-supported'), 0) AS machine_supported
+            FROM ocr_runs
+            """
+        ).fetchone()
+        engines = {
+            str(row[0] or "unknown"): int(row[1])
+            for row in connection.execute(
+                "SELECT engine, COUNT(*) FROM ocr_runs GROUP BY engine ORDER BY engine"
+            )
+        }
+        execution = {
+            str(row[0]): int(row[1])
+            for row in connection.execute(
+                """
+                SELECT execution_status, COUNT(*) FROM ocr_runs
+                GROUP BY execution_status ORDER BY execution_status
+                """
+            )
+        }
+        return {
+            "ocr_runs": int(summary["runs"]),
+            "ocr_regions": int(
+                connection.execute("SELECT COUNT(*) FROM ocr_regions").fetchone()[0]
+            ),
+            "ocr_normalizations": int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM ocr_normalizations"
+                ).fetchone()[0]
+            ),
+            "ocr_fallbacks": int(summary["fallbacks"]),
+            "ocr_low_quality": int(summary["low_quality"]),
+            "ocr_machine_supported": int(summary["machine_supported"]),
+            "ocr_engines": engines,
+            "ocr_execution_statuses": execution,
+        }
 
     def complete(self, result: dict[str, Any]) -> dict[str, Any]:
         """Attach one consistent status snapshot to every read result."""

@@ -604,6 +604,7 @@ def _ocr_layer(
             notes=("This corpus contains no images, so OCR was not exercised.",),
         )
     succeeded = int(index_status.get("ocr_succeeded") or 0)
+    regions = int(index_status.get("ocr_regions") or 0)
     return LayerResult(
         layer="ocr_transcription",
         mode=mode,
@@ -614,11 +615,18 @@ def _ocr_layer(
             "ocr_failed": int(index_status.get("ocr_failed") or 0),
             "ocr_unavailable": int(index_status.get("ocr_unavailable") or 0),
             "ocr_success_rate": succeeded / images,
+            "ocr_regions": regions,
+            "ocr_machine_supported": int(
+                index_status.get("ocr_machine_supported") or 0
+            ),
+            "ocr_low_quality": int(index_status.get("ocr_low_quality") or 0),
+            "ocr_fallbacks": int(index_status.get("ocr_fallbacks") or 0),
         },
         sample_ids=tuple(sample_ids),
         notes=(
-            "CER/WER, raw-vs-normalized scoring, and critical-token accuracy are "
-            "not scored until the OCR capability pack lands.",
+            "Region-level transcription, per-region confidences, and critical "
+            "tokens are recorded by this build; CER/WER and critical-token "
+            "scoring need a scored corpus and land with the Golden Set (V2-12).",
         ),
     )
 

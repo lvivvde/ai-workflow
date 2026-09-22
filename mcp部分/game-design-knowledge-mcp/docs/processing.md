@@ -11,7 +11,7 @@
 | # | Stage | 层次 | 能力包 | 必选 | 粒度 | 归属 |
 |---|---|---|---|---|---|---|
 | 1 | `source_parse` | core | core | 是 | 每文档 | V2-03（本次实现） |
-| 2 | `ocr` | core | core | 否 | 每文档 | V2-04（本版本只解析降级链） |
+| 2 | `ocr` | core | core | 否 | 每文档 | V2-04（本次实现） |
 | 3 | `layout` | enhanced | enhanced_ocr | 否 | 每文档 | V2-05 |
 | 4 | `structure_relations` | core | core | 否 | 每文档 | V2-05 |
 | 5 | `notation` | core | core | 否 | 每文档 | V2-07 |
@@ -19,7 +19,9 @@
 | 7 | `explanation_cache` | optional | — | 否 | 每项目 | V2-08 |
 | 8 | `retrieval_projection` | core | core | 是 | 每项目 | V2-03（本次实现） |
 
-本版本真正干重活的是两段：`source_parse` 归一化文档身份，`retrieval_projection` 发布派生索引快照；`ocr` 解析降级链并记录本次该用哪个引擎。其余 stage 已经声明、已经记录，但返回 `execution_status="unavailable"` 并带上归属工单，让“缺能力”这件事显式可见，而不是被悄悄跳过。
+本版本真正干重活的是三段：`source_parse` 归一化文档身份，`ocr` 按降级链产出区域级转录并给每个区域打分，`retrieval_projection` 发布派生索引快照。其余 stage 已经声明、已经记录，但返回 `execution_status="unavailable"` 并带上归属工单，让“缺能力”这件事显式可见，而不是被悄悄跳过。
+
+`ocr` stage 的规则集与输出 schema 版本固定为 `ocr-regions-v1`，都写进 stage 定义（`processing.py`），所以换了输出契约就会让该 stage 的指纹变化，而不是悄悄改变同一份结果的含义。区域级细节见 [`ocr.md`](ocr.md)。
 
 Stage 的顺序不是装饰：`retrieval_projection` 把运行清单一起写进快照，所以它必须是最后一个 stage，否则它之后的 stage 尝试永远进不了它要解释的那个索引。
 
@@ -98,15 +100,18 @@ run_pipeline(project_root, index_directory, retry_stages=["layout"])
 
 ```text
 rapidocr (core, ONNX Runtime)
-    -> not implemented / not installed
-paddleocr (enhanced)
-    -> not implemented / not installed
+    -> not installed / models missing
+paddleocr (enhanced, 显式安装)
+    -> not installed / missing language pack
 tesseract (compatibility, V1 behaviour)
 ```
 
 - 链上每个引擎都会留下一条 `reason_chain` 记录：请求了谁、是否可用、版本、被跳过的原因。
 - `tesseract` 是兼容性回退，不是等价默认值；`allow_compatibility_fallback=False` 可以显式关掉它，此时宁可 `unavailable` 也不用低一档的能力冒充。
 - 走了回退就是 `partial` + `fallback_used=True`，绝不会报成干净的成功。
+- 请求的引擎优先：显式指定 `rapidocr` 时先试它，失败再按链下钻；`succeeded`、`timeout`、`corrupt_image`、`unsupported_format` 立即停止，不再换引擎重试。
+
+单张图的引擎尝试记录在 `ocr_runs.reason_chain` 与 `attempts` 里；region 的几何、原文、三类置信度和规范化建议见 [`ocr.md`](ocr.md) 与 [`data-model.md`](data-model.md)。
 
 ### 模型安装与“不静默下载”
 

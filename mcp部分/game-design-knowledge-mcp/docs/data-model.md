@@ -5,13 +5,14 @@ SQLite 是可删除、可重建的派生索引。正式 `.index/knowledge` 会�
 ## Schema 版本
 
 ```sql
-PRAGMA user_version = 4;
+PRAGMA user_version = 5;
 ```
 
 版本不匹配时不读取、不猜测：
 
 - v2 → v3 走显式迁移（`game-design-knowledge migrate`），迁移前自动备份，失败还原。
 - v3 → v4 走显式迁移，新增处理清单与 stage 尝试两张表。
+- v4 → v5 走显式迁移，新增区域级 OCR 三张表（`ocr_runs` / `ocr_regions` / `ocr_normalizations`）。
 - 更旧或更新的版本一律显式拒绝，并给出原因。
 
 详解见 [`revisions.md`](revisions.md)。
@@ -162,6 +163,34 @@ ocr_text
 
 资产路径相对索引目录保存，保证staging发布后仍有效。
 
+## ocr_runs / ocr_regions / ocr_normalizations
+
+区域级 OCR 的三张表。`images` 继续保存 V1 的粗粒度结果（`ocr_status` / `ocr_text` / `ocr_error`），三张新表只做**追加**，让“这张图上的哪个区域写了什么”可查、可评分：
+
+```text
+ocr_runs
+  image_id, requested_engine, engine, engine_version, tier, fallback_used,
+  execution_status, quality_status, reason_code, detail, evidence_state,
+  language, reading_order_source, region_count, reason_chain, duration_ms, created_at
+
+ocr_regions
+  run_id, image_id, region_index, reading_order, bbox, text_raw,
+  text_confidence, region_confidence, key_mark_confidence, language
+  UNIQUE(run_id, region_index)
+
+ocr_normalizations
+  region_id, ruleset_version, normalized_text, changes, created_at
+  UNIQUE(region_id, ruleset_version)
+```
+
+三条不可协商的约定：
+
+- `text_raw` 就是引擎的原话，规范化结果另存一行，永不覆盖 raw。
+- 三个置信度分列，任何单一总分都不入库（见 [`ocr.md`](ocr.md)）。
+- `reason_chain` 保存这次实际走过的引擎链：试了谁、为什么跳过、最终选了谁。
+
+`evidence_state` 只允许 `transcription` 或 `machine-supported`；OCR 结果不会被标成 `explicit` / `verified`。
+
 ## evidence
 
 为 MCP 提供统一查询视图。
@@ -237,8 +266,9 @@ tokenize='trigram'
 - `(sheet_id, cell_reference)`唯一。
 - `feature_key`唯一。
 - `(feature_id, alias)`唯一。
+- `(run_id, region_index)`唯一，`(region_id, ruleset_version)`唯一。
 - 所有 MCP 查询使用参数化 SQL。
-- 删除文档时级联删除对应块、工作表、单元格、证据和图片引用。
+- 删除文档时级联删除对应块、工作表、单元格、证据和图片引用；OCR 侧按 normalization → region → run 的顺序删除。
 - 共享图片资产只有在无引用时才能清理。
 
 ## 发布与增量更新
@@ -253,3 +283,5 @@ tokenize='trigram'
 - catalog 变化：只刷新 catalog 相关表。
 
 增量更新不得在失败后留下新旧记录混合状态。
+
+已知边界：复用判据只是源文件字节哈希。装了新引擎（或改了 OCR 配置）之后，源文件没变的文档不会自动重新转录——派生记录仍按“源未变”复用。需要让新能力生效，要改变源文件或重建索引；把复用判据扩展到“能力配置”属于后续工单的范围。

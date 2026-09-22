@@ -15,9 +15,12 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 from . import revisions
+from .flow_notation import build_relations, summarize_relations
+from .layout import build_reading_order
 from .migration import (
     TARGET_SCHEMA_VERSION,
     SchemaVersionError,
+    ensure_layout_schema,
     ensure_ocr_schema,
     ensure_processing_schema,
     ensure_revision_schema,
@@ -124,6 +127,7 @@ def index_documents(
     documents_removed = 0
     assets_removed = 0
     ocr_regions_recorded = 0
+    layout_recorded: dict[str, int] = {}
     current_paths = {
         _stored_source_path(path, output)
         for pattern in SOURCE_PATTERNS
@@ -254,7 +258,9 @@ def index_documents(
                     "INSERT INTO image_fts(image_id, context_text, ocr_text, heading) VALUES (?, ?, ?, ?)",
                     (image_id, context_text, ocr_text, heading or ""),
                 )
-                _record_ocr_result(connection, image_id, ocr)
+                layout_recorded = _add_counts(
+                    layout_recorded, _record_ocr_result(connection, image_id, ocr)
+                )
                 outcomes.append(ocr.outcome)
                 ocr_regions_recorded += len(ocr.observation.regions)
                 images_indexed += 1
@@ -414,7 +420,9 @@ def index_documents(
                     "INSERT INTO image_fts(image_id, context_text, ocr_text, heading) VALUES (?, ?, ?, ?)",
                     (image_id, context_text, ocr_text, ""),
                 )
-                _record_ocr_result(connection, image_id, ocr)
+                layout_recorded = _add_counts(
+                    layout_recorded, _record_ocr_result(connection, image_id, ocr)
+                )
                 outcomes.append(ocr.outcome)
                 ocr_regions_recorded += len(ocr.observation.regions)
                 images_indexed += 1
@@ -438,7 +446,8 @@ def index_documents(
             )
             if image_result is None:
                 continue
-            action, ocr = image_result
+            action, ocr, counted = image_result
+            layout_recorded = _add_counts(layout_recorded, counted)
             documents_indexed += 1
             documents_added += action == "added"
             documents_updated += action == "updated"
@@ -487,6 +496,19 @@ def index_documents(
     # grading turned out.
     report.update(summarize_outcomes(outcomes))
     report["ocr_regions"] = ocr_regions_recorded
+    # Layout is derived in the same pass as the transcription it reads, so these
+    # counters describe this build's images exactly like the OCR ones above.
+    report["layout_elements"] = layout_recorded.get("layout_elements", 0)
+    report["layout_relations"] = layout_recorded.get("relations", 0)
+    report["layout_confirmed_relations"] = layout_recorded.get(
+        "confirmed_relations", 0
+    )
+    report["layout_candidate_relations"] = layout_recorded.get(
+        "candidate_relations", 0
+    )
+    report["layout_uncertain_relations"] = layout_recorded.get(
+        "uncertain_relations", 0
+    )
     return report
 
 
@@ -634,6 +656,7 @@ def _create_schema(connection: sqlite3.Connection) -> None:
     ensure_revision_schema(connection)
     ensure_processing_schema(connection)
     ensure_ocr_schema(connection)
+    ensure_layout_schema(connection)
 
 
 def _index_catalog(
@@ -893,6 +916,12 @@ def _delete_document(connection: sqlite3.Connection, document_id: int) -> None:
         "DELETE FROM ocr_runs WHERE image_id IN (SELECT id FROM images WHERE document_id = ?)",
         (document_id,),
     )
+    for table in ("structural_relations", "layout_elements", "layout_runs"):
+        connection.execute(
+            f"DELETE FROM {table} "
+            "WHERE image_id IN (SELECT id FROM images WHERE document_id = ?)",
+            (document_id,),
+        )
     connection.execute("DELETE FROM images WHERE document_id = ?", (document_id,))
     connection.execute(
         "DELETE FROM sheet_cells WHERE sheet_id IN (SELECT id FROM workbook_sheets WHERE document_id = ?)",
@@ -1349,8 +1378,8 @@ def _transcribe_image(
 
 def _record_ocr_result(
     connection: sqlite3.Connection, image_id: int, result: OcrResult
-) -> None:
-    """Persist the run, its regions, and the suggestion proposed per region."""
+) -> dict[str, int]:
+    """Persist the run, its regions, the suggestion per region, and its layout."""
 
     observation = result.observation
     outcome = result.outcome
@@ -1428,6 +1457,109 @@ def _record_ocr_result(
                     now,
                 ),
             )
+    return _record_layout_result(connection, image_id, result)
+
+
+def _record_layout_result(
+    connection: sqlite3.Connection, image_id: int, result: OcrResult
+) -> dict[str, int]:
+    """Persist the reading order and relations derived from this run's regions.
+
+    The geometry is read straight back off the regions the run just recorded, so
+    the layout can never describe a different transcription than the one stored
+    beside it. An image with no regions still gets a run row: "this image had
+    nothing to order" is a fact worth storing next to "this image was never
+    looked at".
+    """
+
+    order = build_reading_order(result.observation.ordered())
+    relations = build_relations(order)
+    counted = summarize_relations(relations)
+    counted["layout_elements"] = len(order.elements)
+    now = _now_iso()
+    run_id = connection.execute(
+        """
+        INSERT INTO layout_runs(
+            image_id, ruleset_version, order_source, column_count, element_count,
+            geometry_confidence, uncertainty, detail, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            image_id,
+            order.ruleset_version,
+            order.order_source,
+            order.column_count,
+            len(order.elements),
+            order.geometry_confidence,
+            order.uncertainty,
+            order.detail,
+            now,
+        ),
+    ).lastrowid
+    for element in order.elements:
+        connection.execute(
+            """
+            INSERT INTO layout_elements(
+                run_id, image_id, region_index, kind, direction, reading_order,
+                row_index, column_index, depth_hint, bbox, text_confidence
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run_id,
+                image_id,
+                element.region_index,
+                element.kind,
+                element.direction,
+                element.reading_order,
+                element.row,
+                element.column,
+                element.depth_hint,
+                (
+                    json.dumps(element.bbox.as_payload())
+                    if element.bbox is not None
+                    else None
+                ),
+                element.text_confidence,
+            ),
+        )
+    for relation in relations:
+        connection.execute(
+            """
+            INSERT INTO structural_relations(
+                run_id, image_id, kind, status, source_region, target_region,
+                via_regions, direction, geometry_basis, detail, uncertainty,
+                geometry_confidence, ocr_confidence, rule_version, claim_boundary,
+                created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run_id,
+                image_id,
+                relation.kind,
+                relation.status,
+                relation.source_region,
+                relation.target_region,
+                json.dumps(list(relation.via_regions), ensure_ascii=False),
+                relation.direction,
+                relation.geometry_basis,
+                relation.detail,
+                relation.uncertainty,
+                relation.geometry_confidence,
+                relation.ocr_confidence,
+                relation.rule_version,
+                relation.claim_boundary,
+                now,
+            ),
+        )
+    return counted
+
+
+def _add_counts(total: dict[str, int], counted: Mapping[str, int]) -> dict[str, int]:
+    """Accumulate one image's layout counters into the build report."""
+
+    for key, value in counted.items():
+        total[key] = total.get(key, 0) + value
+    return total
 
 
 def _standalone_images(source: Path, excluded: Iterable[str]) -> list[Path]:
@@ -1452,7 +1584,7 @@ def _index_standalone_image(
     gate: QualityGate,
     language: str | None,
     allow_compatibility_fallback: bool,
-) -> tuple[str, OcrResult | None]:
+) -> tuple[str, OcrResult | None, dict[str, int]]:
     """Index one standalone PNG/JPEG as its own document with one image row."""
 
     document_id, action = _prepare_document(
@@ -1464,7 +1596,7 @@ def _index_standalone_image(
         processing_fingerprint=processing_fingerprint,
     )
     if action == "reused":
-        return action, None
+        return action, None, {}
     digest = revisions.file_sha256(path)
     assets_dir = output / "assets"
     asset_path = assets_dir / f"{digest}{path.suffix.lower()}"
@@ -1509,8 +1641,8 @@ def _index_standalone_image(
         "INSERT INTO image_fts(image_id, context_text, ocr_text, heading) VALUES (?, ?, ?, ?)",
         (image_id, _source_part(path, logical_root), ocr.text, ""),
     )
-    _record_ocr_result(connection, image_id, ocr)
-    return action, ocr
+    counted = _record_ocr_result(connection, image_id, ocr)
+    return action, ocr, counted
 
 
 def _source_part(path: Path, logical_root: Path) -> str:

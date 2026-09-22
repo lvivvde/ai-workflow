@@ -132,7 +132,7 @@ OCR 统计取决于本机是否安装 RapidOCR / PaddleOCR / Tesseract。三者�
 
 重建还会把本次构建的来源、解析修订和检索单元登记到持久状态目录 `.design-state/`（默认路径；可用 `GAME_DESIGN_STATE_DIR` 覆盖）。该目录保存 Review Events、确认字典和逻辑文档身份，删除 `.index` 后重建不会丢失；它默认不进 Git，随机附仓库提交的人工真源仍是 `knowledge/catalog.json` 与 `docs/`。
 
-如果 `index_status()` 报告的 `schema_version` 低于本构建的目标版本（当前为 4），或 `index_freshness` 把 `lexical_index` 报成 `incompatible`，说明索引是旧 schema，需要显式迁移：
+如果 `index_status()` 报告的 `schema_version` 低于本构建的目标版本（当前为 6），或 `index_freshness` 把 `lexical_index` 报成 `incompatible`，说明索引是旧 schema，需要显式迁移：
 
 ```powershell
 uv run game-design-knowledge migrate --plan --database .index\knowledge\knowledge.sqlite
@@ -140,6 +140,8 @@ uv run game-design-knowledge migrate --database .index\knowledge\knowledge.sqlit
 ```
 
 迁移前会自动备份到 `.index/knowledge/schema-backups/`，失败会还原备份；比当前版本更新的 schema 只会被拒绝，不会被旧代码改写。
+
+注意迁移只**增加表**，不会回填派生数据：v5 → v6 会补上 `layout_runs` / `layout_elements` / `structural_relations`，但已发布索引里那些“内容未变、按 SHA 复用”的文档不会重新计算布局。要让共享索引带上阅读顺序与箭头关系，迁移后按第 4 节重建一次（资料未变时也可先删掉 `.index/knowledge/knowledge.sqlite` 再重建）。规则见 [`layout.md`](layout.md)。
 
 ## 5. 索引自己的策划资料
 

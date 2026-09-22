@@ -3,9 +3,11 @@
 Only two stages do heavy work today: ``source_parse`` normalizes source
 identity, and ``retrieval_projection`` publishes the index snapshot that the
 rest of the server reads. ``ocr`` resolves the degradation chain and records
-which engine the projection must use. The remaining stages are declared with
-their owning ticket and report ``unavailable`` so that a missing capability is
-visible instead of being silently skipped.
+which engine the projection must use; ``layout`` and ``structure_relations``
+record the geometry rulesets the projection applies to those regions. The
+remaining stages are declared with their owning ticket and report
+``unavailable`` so that a missing capability is visible instead of being
+silently skipped.
 """
 
 from __future__ import annotations
@@ -15,8 +17,10 @@ import time
 from typing import Any, Iterable, Mapping, Sequence
 
 from .capabilities import CapabilityRuntime, detect_pack
+from .flow_notation import CLAIM_BOUNDARY, RELATION_RULESET_VERSION
 from .index_build import build_index_atomically
 from .indexer import SCHEMA_VERSION, source_documents, excluded_directories, SOURCE_PATTERNS
+from .layout import RULESET_VERSION as LAYOUT_RULESET_VERSION
 from .ocr import (
     DEFAULT_CHAIN,
     OcrEngine,
@@ -58,6 +62,10 @@ SOURCE_SUFFIXES = {
 }
 IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg"})
 PIPELINE_NAMES = tuple(stage.name for stage in DEFAULT_PIPELINE)
+
+#: No local visual model produced candidates for this build. The deterministic
+#: layers are complete without one, so this is a state, not a degradation.
+VISUAL_CANDIDATES_STATE = "not_produced"
 
 
 # -- handlers -------------------------------------------------------------
@@ -197,26 +205,90 @@ def _engine_for(name: str) -> OcrEngine | None:
 
 
 def layout(context: StageContext) -> StageOutput:
-    return declared_stage(
+    return _geometry_stage(
         context,
-        status="unavailable",
-        reason_code="stage_not_implemented",
-        detail=(
-            "Visual elements, reading order, and region association are delivered "
-            f"by {context.definition.owner}; core processing continues without them."
+        ruleset_version=LAYOUT_RULESET_VERSION,
+        capability=(
+            "visual elements, row bands, side-by-side columns, depth hints, and "
+            "the reading order of one image's OCR regions"
         ),
     )
 
 
 def structure_relations(context: StageContext) -> StageOutput:
-    return declared_stage(
+    return _geometry_stage(
         context,
-        status="unavailable",
-        reason_code="stage_not_implemented",
-        detail=(
-            "Structural relations are delivered by "
-            f"{context.definition.owner}; nothing is inferred in the meantime."
+        ruleset_version=RELATION_RULESET_VERSION,
+        capability=(
+            "structural relations between regions; a confirmed next_step needs an "
+            "arrow-only block that is alone in its row with one aligned block on "
+            "each side of it"
         ),
+        claim_boundary=CLAIM_BOUNDARY,
+    )
+
+
+def _geometry_stage(
+    context: StageContext,
+    *,
+    ruleset_version: str,
+    capability: str,
+    claim_boundary: str = "",
+) -> StageOutput:
+    """Record one deterministic geometry layer the projection applies.
+
+    The elements, the order, and the relations are computed inside the published
+    projection, because that is the only place this build holds the OCR regions
+    of *this* parse -- running them here would mean reading regions from the
+    previous index. The stage records the decision instead: which ruleset runs,
+    on whose regions, and that no visual model is needed for it. A local visual
+    model may only add low-trust candidates; it never overrides the geometry and
+    never becomes project evidence (issue #20).
+    """
+
+    engine = str(context.config.get("selected_engine") or "")
+    visual_pack = detect_pack(
+        "visual",
+        model_root=getattr(context.runtime, "model_root", None),
+        hardware=getattr(context.runtime, "hardware", None),
+    )
+    payload = {
+        "declared": False,
+        "owner_ticket": context.definition.owner,
+        "capability_pack": context.definition.capability_pack,
+        "capability": capability,
+        "ruleset_version": ruleset_version,
+        "output_schema_version": context.definition.output_schema_version,
+        "applied_by": "retrieval_projection",
+        "upstream_engine": engine,
+        "visual_model_required": False,
+        "visual_pack_status": visual_pack.status,
+        "visual_candidates": VISUAL_CANDIDATES_STATE,
+    }
+    if claim_boundary:
+        payload["claim_boundary"] = claim_boundary
+    if not engine:
+        return StageOutput(
+            payload=payload,
+            execution_status="unavailable",
+            quality_status="rejected",
+            reason_code="no_ocr_engine",
+            detail=(
+                "No OCR engine was selected for this run, so this layer follows "
+                "whatever regions the projection still records and promises "
+                "nothing about them; core processing continues."
+            ),
+            coverage={},
+        )
+    return StageOutput(
+        payload=payload,
+        execution_status="succeeded",
+        quality_status="accepted",
+        detail=(
+            f"{ruleset_version} orders the regions transcribed by {engine} with "
+            "deterministic geometry; no visual model is used for it."
+        ),
+        coverage={},
     )
 
 
@@ -353,6 +425,9 @@ def run_pipeline(
             allow_compatibility_fallback=allow_compatibility_fallback,
             runtime=runtime,
         )
+        # The stages that consume regions record which engine produced them, so
+        # a layout can never be attributed to an engine this run did not pick.
+        config["selected_engine"] = selection.engine.name if selection.engine else ""
         ocr_settings: dict[str, Any] = {
             "selection": selection.as_payload(),
             "ocr_gate": (ocr_gate or DEFAULT_QUALITY_GATE).as_payload(),

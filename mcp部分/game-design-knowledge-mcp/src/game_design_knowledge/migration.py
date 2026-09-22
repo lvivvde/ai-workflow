@@ -21,10 +21,11 @@ from typing import Any, Callable
 from .snapshots import verify_snapshot
 
 
-TARGET_SCHEMA_VERSION = 5
+TARGET_SCHEMA_VERSION = 6
 LEGACY_SCHEMA_VERSIONS = frozenset({1})
 REVISION_SCHEMA_VERSION = 3
 PROCESSING_SCHEMA_VERSION = 4
+OCR_SCHEMA_VERSION = 5
 
 DOCUMENT_REVISION_COLUMNS: dict[str, str] = {
     "logical_document_id": "TEXT",
@@ -191,6 +192,77 @@ def ensure_ocr_schema(connection: sqlite3.Connection) -> list[str]:
     return _ensure_tables(connection, OCR_TABLE_STATEMENTS)
 
 
+# The reading order is derived from the OCR regions of the same image, and the
+# relations are derived from that reading order. Both keep the row they were
+# computed at, so a reader can re-check a claim without re-running the build.
+LAYOUT_TABLE_STATEMENTS: tuple[str, ...] = (
+    """
+    CREATE TABLE IF NOT EXISTS layout_runs (
+        id INTEGER PRIMARY KEY,
+        image_id INTEGER NOT NULL,
+        ruleset_version TEXT NOT NULL,
+        order_source TEXT NOT NULL DEFAULT '',
+        column_count INTEGER NOT NULL DEFAULT 1,
+        element_count INTEGER NOT NULL DEFAULT 0,
+        geometry_confidence REAL,
+        uncertainty TEXT NOT NULL DEFAULT '',
+        detail TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS layout_elements (
+        id INTEGER PRIMARY KEY,
+        run_id INTEGER NOT NULL,
+        image_id INTEGER NOT NULL,
+        region_index INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        direction TEXT NOT NULL DEFAULT '',
+        reading_order INTEGER NOT NULL DEFAULT 0,
+        row_index INTEGER NOT NULL DEFAULT 0,
+        column_index INTEGER NOT NULL DEFAULT 0,
+        depth_hint INTEGER NOT NULL DEFAULT 0,
+        bbox TEXT,
+        text_confidence REAL,
+        UNIQUE(run_id, region_index)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS structural_relations (
+        id INTEGER PRIMARY KEY,
+        run_id INTEGER NOT NULL,
+        image_id INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        status TEXT NOT NULL,
+        source_region INTEGER NOT NULL,
+        target_region INTEGER NOT NULL,
+        via_regions TEXT NOT NULL DEFAULT '[]',
+        direction TEXT NOT NULL DEFAULT '',
+        geometry_basis TEXT NOT NULL DEFAULT '',
+        detail TEXT NOT NULL DEFAULT '',
+        uncertainty TEXT NOT NULL DEFAULT '',
+        geometry_confidence REAL,
+        ocr_confidence REAL,
+        rule_version TEXT NOT NULL,
+        claim_boundary TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS layout_runs_image_index ON layout_runs(image_id)",
+    "CREATE INDEX IF NOT EXISTS layout_elements_image_index ON layout_elements(image_id)",
+    (
+        "CREATE INDEX IF NOT EXISTS structural_relations_image_index "
+        "ON structural_relations(image_id)"
+    ),
+)
+
+
+def ensure_layout_schema(connection: sqlite3.Connection) -> list[str]:
+    """Create the layout tables that carry reading order and relations."""
+
+    return _ensure_tables(connection, LAYOUT_TABLE_STATEMENTS)
+
+
 class MigrationError(RuntimeError):
     """Raised when a migration did not finish and had to be rolled back."""
 
@@ -231,11 +303,21 @@ STEPS: dict[int, MigrationStep] = {
     ),
     4: MigrationStep(
         version_from=PROCESSING_SCHEMA_VERSION,
-        version_to=TARGET_SCHEMA_VERSION,
+        version_to=OCR_SCHEMA_VERSION,
         description=(
             "Add the OCR tables (ocr_runs, ocr_regions, ocr_normalizations) that "
             "keep region geometry, raw transcription, separated confidences, and "
             "the suggestion proposed for each region"
+        ),
+    ),
+    5: MigrationStep(
+        version_from=OCR_SCHEMA_VERSION,
+        version_to=TARGET_SCHEMA_VERSION,
+        description=(
+            "Add the layout tables (layout_runs, layout_elements, "
+            "structural_relations) that keep the reading order, the depth hint of "
+            "each region, and every structural relation with its endpoints, "
+            "geometric basis, rule version, and separated confidences"
         ),
     ),
 }
@@ -473,8 +555,10 @@ def _run_step(step: MigrationStep, connection: sqlite3.Connection) -> list[str]:
         return ensure_revision_schema(connection)
     if step.version_to == PROCESSING_SCHEMA_VERSION:
         return ensure_processing_schema(connection)
-    if step.version_to == TARGET_SCHEMA_VERSION:
+    if step.version_to == OCR_SCHEMA_VERSION:
         return ensure_ocr_schema(connection)
+    if step.version_to == TARGET_SCHEMA_VERSION:
+        return ensure_layout_schema(connection)
     raise MigrationError(f"No migration is defined onto version {step.version_to}")
 
 
@@ -510,9 +594,11 @@ def _now() -> str:
 
 __all__ = [
     "DOCUMENT_REVISION_COLUMNS",
+    "LAYOUT_TABLE_STATEMENTS",
     "LEGACY_SCHEMA_VERSIONS",
     "MigrationError",
     "MigrationStep",
+    "OCR_SCHEMA_VERSION",
     "PROCESSING_TABLE_STATEMENTS",
     "REVISION_SCHEMA_VERSION",
     "REVISION_TABLE_STATEMENTS",
@@ -520,6 +606,7 @@ __all__ = [
     "SchemaVersionError",
     "TARGET_SCHEMA_VERSION",
     "apply_migration",
+    "ensure_layout_schema",
     "ensure_ocr_schema",
     "ensure_processing_schema",
     "ensure_revision_schema",

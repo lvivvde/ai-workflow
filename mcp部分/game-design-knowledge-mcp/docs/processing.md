@@ -12,16 +12,18 @@
 |---|---|---|---|---|---|---|
 | 1 | `source_parse` | core | core | 是 | 每文档 | V2-03（本次实现） |
 | 2 | `ocr` | core | core | 否 | 每文档 | V2-04（本次实现） |
-| 3 | `layout` | enhanced | enhanced_ocr | 否 | 每文档 | V2-05 |
-| 4 | `structure_relations` | core | core | 否 | 每文档 | V2-05 |
+| 3 | `layout` | core | core | 否 | 每文档 | V2-05（本次实现） |
+| 4 | `structure_relations` | core | core | 否 | 每文档 | V2-05（本次实现） |
 | 5 | `notation` | core | core | 否 | 每文档 | V2-07 |
 | 6 | `statements` | core | core | 否 | 每文档 | V2-08 |
 | 7 | `explanation_cache` | optional | — | 否 | 每项目 | V2-08 |
 | 8 | `retrieval_projection` | core | core | 是 | 每项目 | V2-03（本次实现） |
 
-本版本真正干重活的是三段：`source_parse` 归一化文档身份，`ocr` 按降级链产出区域级转录并给每个区域打分，`retrieval_projection` 发布派生索引快照。其余 stage 已经声明、已经记录，但返回 `execution_status="unavailable"` 并带上归属工单，让“缺能力”这件事显式可见，而不是被悄悄跳过。
+本版本真正干重活的是四段：`source_parse` 归一化文档身份，`ocr` 按降级链产出区域级转录并给每个区域打分，`layout` 与 `structure_relations` 把区域读成顺序和保守的关系，`retrieval_projection` 发布派生索引快照。其余 stage 已经声明、已经记录，但返回 `execution_status="unavailable"` 并带上归属工单，让“缺能力”这件事显式可见，而不是被悄悄跳过。
 
 `ocr` stage 的规则集与输出 schema 版本固定为 `ocr-regions-v1`，都写进 stage 定义（`processing.py`），所以换了输出契约就会让该 stage 的指纹变化，而不是悄悄改变同一份结果的含义。区域级细节见 [`ocr.md`](ocr.md)。
+
+`layout`（`layout-regions-v1`）与 `structure_relations`（`flow-arrow-v1`）的**计算发生在 `retrieval_projection` 内部**：只有那里同时持有本次解析的 OCR 区域，在 stage 里重算就只会读到上一版索引的区域。这两个 stage 记录的是决策——跑哪套规则集、读哪个引擎产出的区域、需不需要视觉模型——因此它们的 `reason_code` 是 `no_ocr_engine` 而不是 `stage_not_implemented`。两者都是 core 能力：几何与箭头规则不依赖 `enhanced_ocr`/`visual` 包。规则与边界见 [`layout.md`](layout.md)。
 
 Stage 的顺序不是装饰：`retrieval_projection` 把运行清单一起写进快照，所以它必须是最后一个 stage，否则它之后的 stage 尝试永远进不了它要解释的那个索引。
 

@@ -6,12 +6,29 @@ import os
 from pathlib import Path
 import sqlite3
 from types import TracebackType
-from typing import Any
+from typing import Any, Iterable
 
 from .indexer import catalog_fingerprint
 
 
 _FRESHNESS_HASH_CACHE: dict[tuple[str, int, int], str] = {}
+
+
+def _table_names(connection: sqlite3.Connection) -> set[str]:
+    """The tables an index actually has, so a missing one is never queried."""
+
+    return {
+        str(row[0])
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')"
+        )
+    }
+
+
+def _grouped_counts(rows: Iterable[tuple[object, int]]) -> dict[str, int]:
+    """Turn ``GROUP BY`` rows into a payload a reader can compare at a glance."""
+
+    return {str(key or ""): int(count) for key, count in rows}
 
 
 class SharedIndexRead:
@@ -113,6 +130,7 @@ class SharedIndexRead:
         # whether anything had to fall back. The three counters above keep their
         # V1 meaning.
         self._status.update(self._ocr_detail(connection))
+        self._status.update(self._layout_detail(connection))
         return self._status
 
     @staticmethod
@@ -129,12 +147,7 @@ class SharedIndexRead:
             "ocr_engines": {},
             "ocr_execution_statuses": {},
         }
-        tables = {
-            row[0]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            )
-        }
+        tables = _table_names(connection)
         if not {"ocr_runs", "ocr_regions", "ocr_normalizations"}.issubset(tables):
             return empty
         summary = connection.execute(
@@ -179,6 +192,74 @@ class SharedIndexRead:
             "ocr_machine_supported": int(summary["machine_supported"]),
             "ocr_engines": engines,
             "ocr_execution_statuses": execution,
+        }
+
+    @staticmethod
+    def _layout_detail(connection: sqlite3.Connection) -> dict[str, object]:
+        """Reading-order summary; empty for an index that predates it."""
+
+        empty: dict[str, object] = {
+            "layout_runs": 0,
+            "layout_images": 0,
+            "layout_elements": 0,
+            "layout_relations": 0,
+            "layout_confirmed_relations": 0,
+            "layout_candidate_relations": 0,
+            "layout_uncertain_relations": 0,
+            "layout_uncertainty": {},
+            "layout_rulesets": {},
+            "relation_rulesets": {},
+        }
+        if not {
+            "layout_runs",
+            "layout_elements",
+            "structural_relations",
+        }.issubset(_table_names(connection)):
+            return empty
+        relations = connection.execute(
+            """
+            SELECT
+                COUNT(*) AS relations,
+                COALESCE(SUM(status = 'confirmed'), 0) AS confirmed,
+                COALESCE(SUM(status != 'confirmed'), 0) AS candidates,
+                COALESCE(SUM(uncertainty != ''), 0) AS uncertain
+            FROM structural_relations
+            """
+        ).fetchone()
+        return {
+            "layout_runs": int(
+                connection.execute("SELECT COUNT(*) FROM layout_runs").fetchone()[0]
+            ),
+            "layout_images": int(
+                connection.execute(
+                    "SELECT COUNT(DISTINCT image_id) FROM layout_elements"
+                ).fetchone()[0]
+            ),
+            "layout_elements": int(
+                connection.execute("SELECT COUNT(*) FROM layout_elements").fetchone()[0]
+            ),
+            "layout_relations": int(relations["relations"]),
+            "layout_confirmed_relations": int(relations["confirmed"]),
+            "layout_candidate_relations": int(relations["candidates"]),
+            "layout_uncertain_relations": int(relations["uncertain"]),
+            "layout_uncertainty": _grouped_counts(
+                connection.execute(
+                    "SELECT uncertainty, COUNT(*) FROM layout_runs "
+                    "GROUP BY uncertainty ORDER BY uncertainty"
+                )
+            ),
+            "layout_rulesets": _grouped_counts(
+                connection.execute(
+                    "SELECT ruleset_version, COUNT(*) FROM layout_runs "
+                    "GROUP BY ruleset_version ORDER BY ruleset_version"
+                )
+            ),
+            "relation_rulesets": _grouped_counts(
+                connection.execute(
+                    "SELECT rule_version, COUNT(*) FROM structural_relations "
+                    "GROUP BY rule_version ORDER BY rule_version"
+                )
+            ),
         }
 
     def complete(self, result: dict[str, Any]) -> dict[str, Any]:

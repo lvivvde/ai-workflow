@@ -541,6 +541,7 @@ def _mode_layers(
     return [
         _source_import_layer(mode, build_report, build_seconds, index_status, sample_ids),
         _ocr_layer(mode, index_status, sample_ids),
+        *_layout_layers(mode, index_status, sample_ids),
         *_absent_capability_layers(mode),
         _statement_layer(mode, items),
         _retrieval_layer(mode, items),
@@ -631,14 +632,92 @@ def _ocr_layer(
     )
 
 
+def _layout_layers(
+    mode: str, index_status: Mapping[str, Any], sample_ids: Sequence[str]
+) -> list[LayerResult]:
+    """Reading order and relations, reported as two layers that can fail apart.
+
+    Both are counted from the index the build actually published, so a corpus
+    whose images never reached the ruleset is reported as *unavailable* with the
+    reason, instead of being folded into a passing number.
+    """
+
+    images = int(index_status.get("images_indexed") or 0)
+    elements = int(index_status.get("layout_elements") or 0)
+    if images == 0:
+        reason = "This corpus contains no images, so no reading order was exercised."
+    elif elements == 0:
+        reason = (
+            "No OCR region reached the layout ruleset, so this corpus exercises "
+            "neither the reading order nor the arrow rules."
+        )
+    else:
+        reason = ""
+    if reason:
+        return [
+            LayerResult(
+                layer=layer, mode=mode, status="unavailable", notes=(reason,)
+            )
+            for layer in ("layout_regions", "reading_order_relations")
+        ]
+    return [
+        LayerResult(
+            layer="layout_regions",
+            mode=mode,
+            status="measured",
+            metrics={
+                "images_indexed": images,
+                "layout_runs": int(index_status.get("layout_runs") or 0),
+                "layout_images": int(index_status.get("layout_images") or 0),
+                "layout_elements": elements,
+                "layout_elements_per_image": round(elements / images, 4),
+                "layout_uncertain_images": sum(
+                    count
+                    for code, count in (
+                        index_status.get("layout_uncertainty") or {}
+                    ).items()
+                    if code
+                ),
+                "layout_rulesets": index_status.get("layout_rulesets") or {},
+            },
+            sample_ids=tuple(sample_ids),
+            notes=(
+                "Each element keeps its region, row, column, depth hint, and the "
+                "geometry confidence of the order it sits in; per-image ordering "
+                "accuracy needs a labelled corpus and lands with V2-12.",
+            ),
+        ),
+        LayerResult(
+            layer="reading_order_relations",
+            mode=mode,
+            status="measured",
+            metrics={
+                "layout_relations": int(index_status.get("layout_relations") or 0),
+                "layout_confirmed_relations": int(
+                    index_status.get("layout_confirmed_relations") or 0
+                ),
+                "layout_candidate_relations": int(
+                    index_status.get("layout_candidate_relations") or 0
+                ),
+                "layout_uncertain_relations": int(
+                    index_status.get("layout_uncertain_relations") or 0
+                ),
+                "relation_rulesets": index_status.get("relation_rulesets") or {},
+            },
+            sample_ids=tuple(sample_ids),
+            notes=(
+                "A confirmed next_step keeps its arrow, both endpoints, the "
+                "geometry basis, and the geometry and OCR confidences apart; "
+                "indentation never creates a relation.",
+            ),
+        ),
+    ]
+
+
 def _absent_capability_layers(mode: str) -> list[LayerResult]:
     """Layers whose capability does not exist yet are reported as unavailable."""
 
     reasons = {
-        "layout_regions": "No layout/region capability is reported by this build.",
-        "reading_order_relations": (
-            "No reading-order capability is reported by this build."
-        ),
         "notation_resolution": (
             "No designer-notation capability is reported by this build."
         ),

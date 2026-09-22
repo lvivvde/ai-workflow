@@ -124,14 +124,21 @@ DEFAULT_PIPELINE: tuple[StageDefinition, ...] = (
     StageDefinition(
         name="layout",
         order=3,
-        tier="enhanced",
+        tier="core",
         owner="V2-05",
-        description="Visual elements, reading order, and region association.",
+        description=(
+            "Visual elements, reading order, and region association, computed "
+            "from OCR regions with deterministic geometry."
+        ),
         upstream=("ocr",),
-        capability_pack="enhanced_ocr",
+        # The enhanced pack holds PaddleOCR/PP-Structure, which this stage does
+        # not use: the order is read off region geometry, so it runs whenever
+        # core OCR delivered regions (issue #20).
+        capability_pack="core",
         required=False,
         handler="pipeline.layout",
-        ruleset_version="layout-v1",
+        ruleset_version="layout-regions-v1",
+        output_schema_version="layout-regions-v1",
     ),
     StageDefinition(
         name="structure_relations",
@@ -143,7 +150,8 @@ DEFAULT_PIPELINE: tuple[StageDefinition, ...] = (
         capability_pack="core",
         required=False,
         handler="pipeline.structure_relations",
-        ruleset_version="relations-v1",
+        ruleset_version="flow-arrow-v1",
+        output_schema_version="flow-arrow-v1",
     ),
     StageDefinition(
         name="notation",

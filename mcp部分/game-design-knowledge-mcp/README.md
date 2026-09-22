@@ -41,8 +41,9 @@ game-design-knowledge-mcp/
 - 只识别人工目录中的正式名和已确认别名，不自动创建或联想外号。
 - 导入和重建共享索引必须先预览、再由用户明确确认。
 - 冻结 V1 公共契约，并用分层离线评测加五条 Release-blocking invariant 守住兼容性和证据安全。
+- 从 OCR 区域还原图片阅读顺序与「文本 → 向下箭头 → 下一行文本」结构：箭头是独立块且上下各一个对齐块时才确认 `next_step`，分支、连续箭头、缺失端点、跨容器与缩进一律只记为 candidate 或 `depth_hint`，并分列报告几何与 OCR 两种置信度。
 
-正式规格见 [`docs/spec.md`](docs/spec.md)，数据模型见 [`docs/data-model.md`](docs/data-model.md)。
+正式规格见 [`docs/spec.md`](docs/spec.md)，数据模型见 [`docs/data-model.md`](docs/data-model.md)，布局与箭头规则见 [`docs/layout.md`](docs/layout.md)。
 
 ## 安装与验证
 

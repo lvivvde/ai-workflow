@@ -48,13 +48,29 @@ def downgrade_to_v4(database_path: Path) -> None:
     """Turn a current index into the processing-only Schema v4 one."""
 
     with closing(sqlite3.connect(database_path)) as connection, connection:
-        for table in ("ocr_normalizations", "ocr_regions", "ocr_runs"):
+        for table in (
+            "structural_relations",
+            "layout_elements",
+            "layout_runs",
+            "ocr_normalizations",
+            "ocr_regions",
+            "ocr_runs",
+        ):
             connection.execute(f"DROP TABLE IF EXISTS {table}")
         connection.execute("PRAGMA user_version = 4")
 
 
+def downgrade_to_v5(database_path: Path) -> None:
+    """Turn a current index into the OCR-only Schema v5 one."""
+
+    with closing(sqlite3.connect(database_path)) as connection, connection:
+        for table in ("structural_relations", "layout_elements", "layout_runs"):
+            connection.execute(f"DROP TABLE IF EXISTS {table}")
+        connection.execute("PRAGMA user_version = 5")
+
+
 class SchemaMigrationTests(unittest.TestCase):
-    def test_a_v4_index_gains_the_ocr_tables_without_losing_its_documents(self) -> None:
+    def test_a_v4_index_walks_every_step_without_losing_its_documents(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             workspace = Path(temporary_directory)
             project_root, index_directory = build_project(workspace)
@@ -67,7 +83,8 @@ class SchemaMigrationTests(unittest.TestCase):
             self.assertEqual(plan["status"], "migration_available")
             self.assertEqual(plan["current_version"], 4)
             self.assertEqual(
-                [(step["from"], step["to"]) for step in plan["steps"]], [(4, SCHEMA_VERSION)]
+                [(step["from"], step["to"]) for step in plan["steps"]],
+                [(4, 5), (5, SCHEMA_VERSION)],
             )
 
             report = apply_migration(database_path)
@@ -82,13 +99,54 @@ class SchemaMigrationTests(unittest.TestCase):
                 }
                 after = connection.execute("SELECT COUNT(*) FROM evidence").fetchone()[0]
             self.assertLessEqual(
-                {"ocr_runs", "ocr_regions", "ocr_normalizations"}, tables
+                {
+                    "ocr_runs",
+                    "ocr_regions",
+                    "ocr_normalizations",
+                    "layout_runs",
+                    "layout_elements",
+                    "structural_relations",
+                },
+                tables,
             )
             self.assertEqual(after, before, "migration only adds tables")
             self.assertEqual(read_schema_version(database_path), SCHEMA_VERSION)
             self.assertEqual(
                 index_documents(project_root, index_directory)["documents_indexed"], 1
             )
+
+    def test_a_v5_index_gains_the_layout_tables(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            workspace = Path(temporary_directory)
+            _, index_directory = build_project(workspace)
+            database_path = index_directory / "knowledge.sqlite"
+            downgrade_to_v5(database_path)
+
+            plan = plan_migration(database_path)
+            self.assertEqual(plan["current_version"], 5)
+            self.assertEqual(
+                [(step["from"], step["to"]) for step in plan["steps"]],
+                [(5, SCHEMA_VERSION)],
+            )
+
+            report = apply_migration(database_path)
+
+            self.assertEqual(report["status"], "migrated")
+            with closing(sqlite3.connect(database_path)) as connection:
+                tables = {
+                    row[0]
+                    for row in connection.execute(
+                        "SELECT name FROM sqlite_master WHERE type = 'table'"
+                    )
+                }
+                regions = connection.execute(
+                    "SELECT COUNT(*) FROM ocr_regions"
+                ).fetchone()[0]
+            self.assertLessEqual(
+                {"layout_runs", "layout_elements", "structural_relations"}, tables
+            )
+            self.assertEqual(regions, 0, "the migration adds tables and nothing else")
+            self.assertEqual(read_schema_version(database_path), SCHEMA_VERSION)
 
     def test_a_v2_index_needs_an_explicit_migration(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

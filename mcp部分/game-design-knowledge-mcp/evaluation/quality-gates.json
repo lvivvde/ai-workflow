@@ -1,0 +1,156 @@
+{
+  "version": "quality-gates-0.1",
+  "description": "Core V2 发布门槛。绝对下限按首轮 Windows 基线（evaluation/runs/）设定，只约束可测量层；不可测量层的失败归入环境或标注类，而不是被折叠成通过。",
+  "gates": [
+    {
+      "layer": "source_import",
+      "metric": "documents_indexed",
+      "floor": 3,
+      "samples_at_least": 1,
+      "error_class": "data",
+      "note": "语料至少要真的进了索引，否则后面所有层都在空集上打分"
+    },
+    {
+      "layer": "ocr_transcription",
+      "metric": "cer",
+      "ceiling": 0.25,
+      "samples_at_least": 4,
+      "error_class": "ocr",
+      "unavailable_class": "environment",
+      "note": "字符错误率上限；需要装了核心 OCR 引擎的机器才可能被判定"
+    },
+    {
+      "layer": "ocr_transcription",
+      "metric": "critical_token_coverage",
+      "floor": 0.9,
+      "samples_at_least": 4,
+      "error_class": "ocr",
+      "unavailable_class": "environment",
+      "note": "数字、单位、ID、箭头、否定词必须原样留下"
+    },
+    {
+      "layer": "layout_regions",
+      "metric": "layout_elements",
+      "floor": 1,
+      "samples_at_least": 1,
+      "error_class": "layout",
+      "unavailable_class": "environment",
+      "note": "没有任何区域进入布局规则集时，阅读顺序这层等于没有跑"
+    },
+    {
+      "layer": "reading_order_relations",
+      "metric": "annotated_relation_scores",
+      "floor": 0.8,
+      "samples_at_least": 1,
+      "error_class": "relation",
+      "unavailable_class": "environment",
+      "note": "F1 下限；只统计有区域进入规则集的运行"
+    },
+    {
+      "layer": "notation_resolution",
+      "metric": "annotated_reading_matches",
+      "floor": 0.9,
+      "samples_at_least": 2,
+      "error_class": "notation",
+      "unavailable_class": "annotation",
+      "note": "已确认条目必须解出标注含义；未知符号必须保持未知"
+    },
+    {
+      "layer": "statement_fidelity",
+      "metric": "evidence_support_rate",
+      "floor": 0.95,
+      "samples_at_least": 5,
+      "error_class": "fact",
+      "note": "声明必须带来源和定位"
+    },
+    {
+      "layer": "retrieval",
+      "metric": "recall_at_limit",
+      "floor": 0.6,
+      "samples_at_least": 5,
+      "error_class": "retrieval",
+      "note": "在语料本身的 limit 上衡量召回，不改工具默认值"
+    },
+    {
+      "layer": "retrieval",
+      "metric": "mrr",
+      "floor": 0.5,
+      "samples_at_least": 5,
+      "error_class": "retrieval"
+    },
+    {
+      "layer": "retrieval",
+      "metric": "no_answer_false_positives",
+      "ceiling": 0.0,
+      "samples_at_least": 2,
+      "mode": "component",
+      "error_class": "retrieval",
+      "note": "标注为无答案的查询不得返回命中"
+    },
+    {
+      "layer": "conflict_and_response_state",
+      "metric": "conflict_preservation_rate",
+      "floor": 1.0,
+      "samples_at_least": 2,
+      "error_class": "fact",
+      "note": "冲突必须并列保留；这类流程不参与任何折中"
+    },
+    {
+      "layer": "explanation",
+      "metric": "required_atom_coverage",
+      "floor": 0.8,
+      "samples_at_least": 2,
+      "error_class": "explanation",
+      "unavailable_class": "annotation",
+      "note": "必需 atom 覆盖率；先要求语料标注，再谈阈值"
+    },
+    {
+      "layer": "explanation",
+      "metric": "unsupported_atom_rate",
+      "ceiling": 0.0,
+      "samples_at_least": 2,
+      "error_class": "explanation",
+      "unavailable_class": "annotation",
+      "note": "被校验器隔离的 atom 比例不得大于零"
+    },
+    {
+      "layer": "performance_and_degradation",
+      "metric": "latency_p95_seconds",
+      "ceiling": 2.0,
+      "samples_at_least": 1,
+      "error_class": "performance",
+      "note": "仅在 Windows baseline 档位上约束单次调用延迟"
+    }
+  ],
+  "regression_limits": [
+    {
+      "layer": "retrieval",
+      "metric": "recall_at_limit",
+      "max_drop": 0.05
+    },
+    {
+      "layer": "statement_fidelity",
+      "metric": "evidence_support_rate",
+      "max_drop": 0.02
+    },
+    {
+      "layer": "conflict_and_response_state",
+      "metric": "conflict_preservation_rate",
+      "max_drop": 0.0
+    },
+    {
+      "layer": "explanation",
+      "metric": "required_atom_coverage",
+      "max_drop": 0.05
+    },
+    {
+      "layer": "notation_resolution",
+      "metric": "annotated_reading_matches",
+      "max_drop": 0.05
+    }
+  ],
+  "notes": [
+    "相对回退限制只在上一次基线运行被显式传入时判定；没有基线时报告会写明未判定，而不会当作通过。",
+    "所有不可测量层在报告里保持 unavailable，并按环境或标注类归因；任何一条绝对下限失败都会让门禁不通过。"
+  ]
+}

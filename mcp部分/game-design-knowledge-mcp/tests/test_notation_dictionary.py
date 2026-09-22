@@ -518,5 +518,63 @@ class NotationDictionaryTests(unittest.TestCase):
             )
 
 
+class NotationRuntimeViewTests(unittest.TestCase):
+    """A notation answer must not stay silent about the index behind it.
+
+    A reading is a human decision, but the candidates under it come from the
+    index, and the answer is produced inside a run that may have degraded. The
+    answer therefore carries the same counts every other index-backed response
+    carries, instead of leaving the caller to guess whether the build was clean.
+    """
+
+    def setUp(self) -> None:
+        self._temporary = tempfile.TemporaryDirectory(prefix="gdk-notation-run-")
+        self.addCleanup(self._temporary.cleanup)
+        self.root = Path(self._temporary.name)
+        self.index_directory = build_project(self.root)
+        self.database_path = self.index_directory / "knowledge.sqlite"
+        self.state = DurableState(self.root)
+
+    def test_a_reading_reports_the_counts_it_read_from(self) -> None:
+        with SharedIndexRead(self.database_path) as index:
+            report = resolve(
+                self.state, index, notation_token=NEXT_STEP, document=DOCUMENT
+            )
+            expected = dict(index.status())
+
+        self.assertEqual(expected, report["index_status"])
+        for key in ("ocr_unavailable", "ocr_failed", "stale_documents"):
+            self.assertIn(key, report["index_status"])
+
+    def test_the_dictionary_view_reports_them_too(self) -> None:
+        with SharedIndexRead(self.database_path) as index:
+            view = dictionary_view(self.state, index)
+            expected = dict(index.status())
+
+        self.assertEqual(expected, view["index_status"])
+
+    def test_a_reading_without_an_index_reports_no_counts(self) -> None:
+        report = resolve(
+            self.state, None, notation_token=NEXT_STEP, document=DOCUMENT
+        )
+
+        self.assertIsNone(report["index_status"])
+
+    def test_an_index_that_cannot_report_itself_does_not_break_the_answer(self) -> None:
+        class _Unreadable:
+            def fetchall(self, *args: object, **kwargs: object) -> list[object]:
+                return []
+
+            def status(self) -> dict[str, object]:
+                raise RuntimeError("the index directory is gone")
+
+        report = resolve(
+            self.state, _Unreadable(), notation_token=NEXT_STEP, document=DOCUMENT
+        )
+
+        self.assertIsNone(report["index_status"])
+        self.assertTrue(report["status"])
+
+
 if __name__ == "__main__":  # pragma: no cover - manual runs
     unittest.main()

@@ -16,6 +16,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import sqlite3
 import sys
 import tempfile
 import time
@@ -24,6 +25,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 from ..index_build import build_index_atomically
 from ..shared_index import SharedIndexRead
+from ..evidence_package import image_layout, image_transcription
 from .claims import (
     FOUND_FAMILY,
     claim_is_traceable,
@@ -39,15 +41,22 @@ from .invariants import (
     violation_summary,
 )
 from .metrics import (
+    character_error_rate,
+    coverage_by_contains,
     mean_ignoring_none,
     precision_at_k,
+    prf1_by_contains,
+    rate_with_interval,
     recall_at_k,
     reciprocal_rank,
+    region_completeness,
     response_state_confusion,
     state_precision_recall,
+    word_error_rate,
 )
 from .network_guard import block_network
 from .reporting import (
+    CapabilityResult,
     LayerResult,
     StratumResult,
     render_markdown,
@@ -58,6 +67,7 @@ from .schema import (
     EvaluationRunManifest,
     EnvironmentRecord,
     EvidenceExpectation,
+    NotationExpectation,
     Sample,
     canonical_fingerprint,
 )
@@ -113,6 +123,7 @@ class EvaluationRun:
     layer_results: tuple[LayerResult, ...]
     stratum_results: tuple[StratumResult, ...]
     response_states: Mapping[str, Mapping[str, Mapping[str, int]]]
+    capability_results: tuple[CapabilityResult, ...] = ()
     network_violations: tuple[str, ...] = ()
     build_error: str | None = None
     notes: tuple[str, ...] = ()
@@ -159,6 +170,9 @@ class EvaluationRun:
             "invariants": [item.as_payload() for item in self.invariant_results],
             "layers": [item.as_payload() for item in self.layer_results],
             "strata": [item.as_payload() for item in self.stratum_results],
+            "capability_packs": [
+                item.as_payload() for item in self.capability_results
+            ],
             "response_states": jsonable(self.response_states),
             "network_violations": list(self.network_violations),
             "notes": list(self.notes),
@@ -209,6 +223,8 @@ def run_evaluation(
     recorded_degradation: dict[str, int] = {}
     peak_memory_bytes = 0
     disk_bytes = 0
+    layer_observations: dict[str, Any] = {}
+    review_seeds: list[dict[str, Any]] = []
 
     source_directory = workspace / "documents"
     index_directory = workspace / "index"
@@ -252,6 +268,10 @@ def run_evaluation(
                             "SELECT DISTINCT asset_path FROM images"
                         )
                     )
+                    layer_observations = _layer_observations(
+                        index, document_paths
+                    )
+                    review_seeds = _seed_review_actions(workspace, corpora, index)
                 recorded_degradation = {
                     "ocr_failed": int(index_status.get("ocr_failed") or 0),
                     "ocr_unavailable": int(index_status.get("ocr_unavailable") or 0),
@@ -299,6 +319,7 @@ def run_evaluation(
         disk_bytes=disk_bytes,
         build_error=build_error,
         recorded_degradation=recorded_degradation,
+        layer_observations=layer_observations,
     )
 
     manifest = EvaluationRunManifest(
@@ -322,7 +343,9 @@ def run_evaluation(
         },
         capabilities={
             "hardware_profile": hardware_profile,
-            "capability_packs": ["core"],
+            "capability_packs": sorted(
+                {pack for sample in samples for pack in sample.capabilities}
+            ),
             "degradation": dict(recorded_degradation),
         },
         config={
@@ -330,6 +353,7 @@ def run_evaluation(
             "random_seed": 0,
             "cold_start": cold_start,
             "network_access": "blocked",
+            "review_seeds": review_seeds,
         },
         artifacts={},
     )
@@ -343,6 +367,7 @@ def run_evaluation(
         layer_results=layer_results,
         stratum_results=stratum_results,
         response_states=response_states,
+        capability_results=_capability_results(items),
         network_violations=tuple(network_violations),
         build_error=build_error,
         notes=tuple(notes),
@@ -466,6 +491,7 @@ def _summarize(
     disk_bytes: int,
     build_error: str | None,
     recorded_degradation: Mapping[str, int],
+    layer_observations: Mapping[str, Any] | None = None,
 ) -> tuple[
     tuple[LayerResult, ...],
     tuple[StratumResult, ...],
@@ -474,6 +500,7 @@ def _summarize(
     modes = sorted({item.mode for item in items})
     layer_results: list[LayerResult] = []
     response_states: dict[str, dict[str, dict[str, int]]] = {}
+    observations = dict(layer_observations or {})
 
     if not modes:
         # Report nothing rather than inventing a mode: an empty selection is
@@ -496,6 +523,7 @@ def _summarize(
                 disk_bytes=disk_bytes,
                 build_error=build_error,
                 recorded_degradation=recorded_degradation,
+                layer_observations=observations,
             )
         )
 
@@ -513,8 +541,10 @@ def _mode_layers(
     disk_bytes: int,
     build_error: str | None,
     recorded_degradation: Mapping[str, int],
+    layer_observations: Mapping[str, Any] | None = None,
 ) -> list[LayerResult]:
     sample_ids = tuple(item.sample_id for item in items)
+    observations = dict(layer_observations or {})
     if build_error is not None:
         results = [
             LayerResult(
@@ -540,12 +570,21 @@ def _mode_layers(
 
     return [
         _source_import_layer(mode, build_report, build_seconds, index_status, sample_ids),
-        _ocr_layer(mode, index_status, sample_ids),
-        *_layout_layers(mode, index_status, sample_ids),
-        *_unmeasured_capability_layers(mode),
+        _ocr_layer(
+            mode, index_status, sample_ids, items=items, observations=observations
+        ),
+        *_layout_layers(
+            mode,
+            index_status,
+            sample_ids,
+            items=items,
+            observations=observations,
+        ),
+        _notation_layer(mode, items),
         _statement_layer(mode, items),
         _retrieval_layer(mode, items),
         _conflict_layer(mode, items),
+        _explanation_layer(mode, items),
         _performance_layer(
             mode,
             items,
@@ -594,8 +633,23 @@ def _source_import_layer(
 
 
 def _ocr_layer(
-    mode: str, index_status: Mapping[str, Any], sample_ids: Sequence[str]
+    mode: str,
+    index_status: Mapping[str, Any],
+    sample_ids: Sequence[str],
+    *,
+    items: Sequence[ItemResult] = (),
+    observations: Mapping[str, Any] | None = None,
 ) -> LayerResult:
+    annotated = [
+        item
+        for item in items
+        if item.sample.expected.transcription is not None
+    ]
+    if annotated:
+        return _annotated_ocr_layer(
+            mode, index_status, annotated, observations or {}
+        )
+
     images = int(index_status.get("images_indexed") or 0)
     if images == 0:
         return LayerResult(
@@ -626,14 +680,201 @@ def _ocr_layer(
         sample_ids=tuple(sample_ids),
         notes=(
             "Region-level transcription, per-region confidences, and critical "
-            "tokens are recorded by this build; CER/WER and critical-token "
-            "scoring need a scored corpus and land with the Golden Set (V2-12).",
+            "tokens are recorded by this build; this corpus does not annotate a "
+            "reference transcription, so CER/WER, critical-token scoring and "
+            "region completeness are not reported for it.",
         ),
     )
 
 
+def _annotated_ocr_layer(
+    mode: str,
+    index_status: Mapping[str, Any],
+    annotated: Sequence[ItemResult],
+    observations: Mapping[str, Any],
+) -> LayerResult:
+    """Score annotated transcriptions, or say exactly why they could not be scored."""
+
+    sample_ids = tuple(item.sample_id for item in annotated)
+    cer: list[float | None] = []
+    wer: list[float | None] = []
+    expected_tokens: list[str] = []
+    observed_tokens: list[str] = []
+    expected_regions: list[str] = []
+    observed_regions: list[str] = []
+    scored: list[str] = []
+    for item in annotated:
+        expectation = item.sample.expected.transcription
+        assert expectation is not None  # filtered by the caller
+        texts = _observed_region_texts(item, observations)
+        if not texts:
+            continue
+        scored.append(item.sample_id)
+        observed = " ".join(texts)
+        cer.append(character_error_rate(expectation.text, observed))
+        wer.append(word_error_rate(expectation.text, observed))
+        expected_tokens.extend(expectation.critical_tokens)
+        observed_tokens.extend(texts)
+        expected_regions.extend(expectation.regions)
+        observed_regions.extend(texts)
+
+    if not scored:
+        return LayerResult(
+            layer="ocr_transcription",
+            mode=mode,
+            status="unavailable",
+            sample_ids=sample_ids,
+            notes=(
+                f"{len(annotated)} sample(s) annotate a reference transcription, "
+                "but this run produced no OCR region for their images (no OCR "
+                "engine was available, or the images never reached the OCR "
+                "stage), so CER/WER, critical tokens and region completeness "
+                "cannot be scored.",
+            ),
+        )
+
+    transcribed_regions = int(index_status.get("ocr_regions") or 0)
+    return LayerResult(
+        layer="ocr_transcription",
+        mode=mode,
+        status="measured",
+        metrics={
+            "annotated_samples": len(annotated),
+            "scored_samples": len(scored),
+            "cer": mean_ignoring_none(cer),
+            "wer": mean_ignoring_none(wer),
+            "critical_token_coverage": coverage_by_contains(
+                expected_tokens, observed_tokens
+            ),
+            "region_completeness": region_completeness(
+                expected_regions, observed_regions
+            ),
+            "ocr_regions_indexed": transcribed_regions,
+            "ocr_fallbacks": int(index_status.get("ocr_fallbacks") or 0),
+            "ocr_machine_supported": int(
+                index_status.get("ocr_machine_supported") or 0
+            ),
+        },
+        sample_ids=tuple(scored),
+        notes=(
+            "CER/WER compare the annotated transcription with the recognised "
+            "regions of the same images; critical tokens and annotated regions "
+            "count as found when they appear inside a recognised region.",
+        ),
+    )
+
+
+def _seed_review_actions(
+    workspace: Path,
+    corpora: Sequence[EvaluationCorpus],
+    index: SharedIndexRead,
+) -> list[dict[str, Any]]:
+    """Replay the review decisions a corpus ships, before any sample runs.
+
+    A corpus that annotates a *confirmed* notation meaning has to be able to
+    hand the run the same confirmed dictionary a person would have. The seeds go
+    through the ordinary plan/apply path, so the run's own journal records them
+    and no sample can tell a seeded run from a reviewed one.
+    """
+
+    from ..review import apply_review_action, plan_review_action
+    from ..state import DurableState
+
+    seeds = [seed for corpus in corpora for seed in corpus.manifest.review_seeds]
+    if not seeds:
+        return []
+    state = DurableState(workspace)
+    applied: list[dict[str, Any]] = []
+    for seed in seeds:
+        intent = dict(seed)
+        plan = plan_review_action(state, index, **intent)
+        result = apply_review_action(
+            state, index, plan_token=str(plan["plan_token"]), **intent
+        )
+        applied.append(
+            {
+                "action": str(intent.get("action") or ""),
+                "notation_token": str(intent.get("notation_token") or ""),
+                "status": str(result.get("status") or ""),
+            }
+        )
+    return applied
+
+
+def _layer_observations(
+    index: SharedIndexRead, document_paths: Mapping[str, str]
+) -> dict[str, list[dict[str, Any]]]:
+    """OCR and layout output, keyed by the corpus document that produced it.
+
+    Annotated OCR, relation, and notation scoring all need the transcription and
+    the relations the build actually produced. Reading them once per run keeps
+    those layers honest, and keeps the per-sample execution path unaware of how
+    a corpus lays its documents out on disk.
+    """
+
+    by_source = {
+        os.path.normcase(str(Path(resolved))): path
+        for path, resolved in document_paths.items()
+    }
+    observations: dict[str, list[dict[str, Any]]] = {
+        path: [] for path in document_paths
+    }
+    try:
+        rows = index.fetchall(
+            """
+            SELECT i.id AS image_id, d.path AS document_path
+            FROM images AS i
+            JOIN documents AS d ON d.id = i.document_id
+            ORDER BY i.id
+            """
+        )
+    except sqlite3.OperationalError:
+        # An index without the V2 image tables simply observed nothing, which is
+        # the same answer as an index whose images never reached OCR.
+        return observations
+    for row in rows:
+        resolved = str(index.resolve_source_path(str(row["document_path"])))
+        path = by_source.get(os.path.normcase(resolved))
+        if path is None:
+            continue
+        image_id = int(row["image_id"])
+        observations[path].append(
+            {
+                "image_id": image_id,
+                "transcription": image_transcription(index, image_id),
+                "layout": image_layout(index, image_id),
+            }
+        )
+    return observations
+
+
+def _observed_region_texts(
+    item: ItemResult, observations: Mapping[str, Any]
+) -> list[str]:
+    """Every recognised region text this run produced for a sample's documents."""
+
+    texts: list[str] = []
+    for document in item.sample.documents:
+        for image in observations.get(document.path) or ():
+            transcription = image.get("transcription") if isinstance(image, Mapping) else None
+            if not isinstance(transcription, Mapping):
+                continue
+            for region in transcription.get("regions") or ():
+                if not isinstance(region, Mapping):
+                    continue
+                text = str(region.get("text") or "").strip()
+                if text:
+                    texts.append(text)
+    return texts
+
+
 def _layout_layers(
-    mode: str, index_status: Mapping[str, Any], sample_ids: Sequence[str]
+    mode: str,
+    index_status: Mapping[str, Any],
+    sample_ids: Sequence[str],
+    *,
+    items: Sequence[ItemResult] = (),
+    observations: Mapping[str, Any] | None = None,
 ) -> list[LayerResult]:
     """Reading order and relations, reported as two layers that can fail apart.
 
@@ -644,6 +885,7 @@ def _layout_layers(
 
     images = int(index_status.get("images_indexed") or 0)
     elements = int(index_status.get("layout_elements") or 0)
+    annotated = [item for item in items if item.sample.expected.relations]
     if images == 0:
         reason = "This corpus contains no images, so no reading order was exercised."
     elif elements == 0:
@@ -651,6 +893,11 @@ def _layout_layers(
             "No OCR region reached the layout ruleset, so this corpus exercises "
             "neither the reading order nor the arrow rules."
         )
+        if annotated:
+            reason += (
+                f" {len(annotated)} sample(s) annotate relations, so relation "
+                "precision/recall/F1 cannot be scored on this run."
+            )
     else:
         reason = ""
     if reason:
@@ -691,20 +938,12 @@ def _layout_layers(
             layer="reading_order_relations",
             mode=mode,
             status="measured",
-            metrics={
-                "layout_relations": int(index_status.get("layout_relations") or 0),
-                "layout_confirmed_relations": int(
-                    index_status.get("layout_confirmed_relations") or 0
-                ),
-                "layout_candidate_relations": int(
-                    index_status.get("layout_candidate_relations") or 0
-                ),
-                "layout_uncertain_relations": int(
-                    index_status.get("layout_uncertain_relations") or 0
-                ),
-                "relation_rulesets": index_status.get("relation_rulesets") or {},
-            },
-            sample_ids=tuple(sample_ids),
+            metrics=_relation_metrics(index_status, annotated, observations or {}),
+            sample_ids=(
+                tuple(item.sample_id for item in annotated)
+                if annotated
+                else tuple(sample_ids)
+            ),
             notes=(
                 "A confirmed next_step keeps its arrow, both endpoints, the "
                 "geometry basis, and the geometry and OCR confidences apart; "
@@ -714,36 +953,276 @@ def _layout_layers(
     ]
 
 
-def _unmeasured_capability_layers(mode: str) -> list[LayerResult]:
-    """Served layers no annotated sample can score yet stay `unavailable`.
+def _relation_metrics(
+    index_status: Mapping[str, Any],
+    annotated: Sequence[ItemResult],
+    observations: Mapping[str, Any],
+) -> dict[str, Any]:
+    metrics: dict[str, Any] = {
+        "layout_relations": int(index_status.get("layout_relations") or 0),
+        "layout_confirmed_relations": int(
+            index_status.get("layout_confirmed_relations") or 0
+        ),
+        "layout_candidate_relations": int(
+            index_status.get("layout_candidate_relations") or 0
+        ),
+        "layout_uncertain_relations": int(
+            index_status.get("layout_uncertain_relations") or 0
+        ),
+        "relation_rulesets": index_status.get("relation_rulesets") or {},
+    }
+    if not annotated:
+        return metrics
+    expected_labels: list[str] = []
+    observed_labels: list[str] = []
+    for item in annotated:
+        expected_labels.extend(
+            expectation.label() for expectation in item.sample.expected.relations
+        )
+        observed_labels.extend(_observed_relation_labels(item, observations))
+    metrics["annotated_relations"] = len(expected_labels)
+    metrics["observed_relations"] = len(observed_labels)
+    if observed_labels:
+        metrics["annotated_relation_scores"] = prf1_by_contains(
+            expected_labels, observed_labels
+        )
+    return metrics
 
-    Both of these are real capabilities of this build; what is missing is a
-    labelled corpus, and the note says exactly that instead of claiming the
-    capability is absent.
+
+def _observed_relation_labels(
+    item: ItemResult, observations: Mapping[str, Any]
+) -> list[str]:
+    """Relation labels built from the region text each endpoint was read as."""
+
+    labels: list[str] = []
+    for document in item.sample.documents:
+        for image in observations.get(document.path) or ():
+            if not isinstance(image, Mapping):
+                continue
+            transcription = image.get("transcription") or {}
+            region_text: dict[str, str] = {}
+            for region in transcription.get("regions") or ():
+                if isinstance(region, Mapping):
+                    region_text[str(region.get("region_index"))] = str(
+                        region.get("text") or ""
+                    )
+            layout = image.get("layout") or {}
+            for relation in layout.get("relations") or ():
+                if not isinstance(relation, Mapping):
+                    continue
+                source = region_text.get(str(relation.get("source_region")), "")
+                target = region_text.get(str(relation.get("target_region")), "")
+                if source or target:
+                    labels.append(f"{source}->{target}")
+    return labels
+
+
+def _notation_layer(mode: str, items: Sequence[ItemResult]) -> LayerResult:
+    """How often an annotated notation reading came back the way it was labelled."""
+
+    annotated = [item for item in items if item.sample.expected.notation]
+    if not annotated:
+        return LayerResult(
+            layer="notation_resolution",
+            mode=mode,
+            status="unavailable",
+            notes=(
+                "Designer notation is resolved (designer-notation-v1, confirmed "
+                "entries only); this corpus annotates no notation token, so this "
+                "layer is not measured.",
+            ),
+        )
+    expectations = [
+        (item, expectation)
+        for item in annotated
+        for expectation in item.sample.expected.notation
+    ]
+    satisfied = 0
+    notes: list[str] = []
+    for item, expectation in expectations:
+        ok, why = _notation_satisfied(item.response, expectation)
+        if ok:
+            satisfied += 1
+        else:
+            notes.append(f"{item.sample_id}:{expectation.symbol} {why}")
+    return LayerResult(
+        layer="notation_resolution",
+        mode=mode,
+        status="measured",
+        metrics={
+            "annotated_tokens": len(expectations),
+            "samples": len(annotated),
+            "annotated_reading_matches": rate_with_interval(
+                satisfied, len(expectations)
+            ),
+        },
+        sample_ids=tuple(item.sample_id for item in annotated),
+        notes=tuple(notes),
+    )
+
+
+def _notation_satisfied(
+    response: Mapping[str, Any] | None, expectation: NotationExpectation
+) -> tuple[bool, str]:
+    """Whether one annotated notation reading came back as it was labelled.
+
+    A confirmed entry has to resolve to the annotated meaning; a rejected
+    reading may only be reported as decoration; an unknown symbol must stay
+    unknown instead of being invented or quarantined into a fact.
     """
 
-    reasons = {
-        "notation_resolution": (
-            "Designer notation is resolved (designer-notation-v1, confirmed "
-            "entries only); no annotated notation sample exists yet, so this "
-            "layer is not measured."
-        ),
-        "explanation": (
-            "Brief/Standard/Full explanations are served (explanation-v1); no "
-            "annotated explanation sample exists yet, so this layer is not "
-            "measured."
-        ),
-    }
-    return [
-        LayerResult(
-            layer=layer, mode=mode, status="unavailable", notes=(reason,)
+    if not isinstance(response, Mapping):
+        return (False, "the token was never resolved")
+    status = str(response.get("status") or "")
+    resolved = response.get("resolved")
+    meaning = (
+        str(resolved.get("meaning") or "") if isinstance(resolved, Mapping) else ""
+    )
+    if expectation.status == "confirmed":
+        if status != "resolved":
+            return (False, f"expected a confirmed reading, got status {status!r}")
+        if expectation.meaning and expectation.meaning not in meaning:
+            return (False, f"expected meaning {expectation.meaning!r}, got {meaning!r}")
+        return (True, "")
+    if expectation.status == "rejected":
+        if status == "resolved":
+            return (False, "a rejected reading was served as a project fact")
+        candidates = [
+            candidate
+            for candidate in (response.get("candidates") or [])
+            if isinstance(candidate, Mapping)
+        ]
+        if not any(candidate.get("rejected") for candidate in candidates):
+            return (False, "the rejected reading is not reported as decoration")
+        return (True, "")
+    if status not in {"not_found", "candidate_only"}:
+        return (False, f"expected an unknown symbol, got status {status!r}")
+    return (True, "")
+
+
+def _explanation_layer(mode: str, items: Sequence[ItemResult]) -> LayerResult:
+    """Atom coverage, citation resolvability, gaps, and unsupported atoms."""
+
+    annotated = [item for item in items if item.sample.expected.required_atoms]
+    if not annotated:
+        return LayerResult(
+            layer="explanation",
+            mode=mode,
+            status="unavailable",
+            notes=(
+                "Brief/Standard/Full explanations are served (explanation-v1); "
+                "this corpus annotates no required atom, so this layer is not "
+                "measured.",
+            ),
         )
-        for layer, reason in reasons.items()
-    ]
+    expected_atoms: list[str] = []
+    observed_atoms: list[str] = []
+    resolvable = 0
+    total_atoms = 0
+    isolated = 0
+    expected_gaps: list[str] = []
+    observed_gaps: list[str] = []
+    conflict_items = 0
+    conflicts_preserved = 0
+    for item in annotated:
+        explanation = _explanation_payload(item.response)
+        atoms = [
+            atom
+            for atom in (explanation.get("atoms") or [])
+            if isinstance(atom, Mapping)
+        ]
+        total_atoms += len(atoms)
+        resolvable += sum(1 for atom in atoms if _atom_citation_resolvable(atom))
+        observed_atoms.extend(str(atom.get("text") or "") for atom in atoms)
+        # The validator reports the atoms it had to isolate on the explanation
+        # itself; nothing here may quietly drop them back into the count.
+        isolated += len(
+            [
+                atom
+                for atom in (explanation.get("isolated_atoms") or ())
+                if isinstance(atom, Mapping)
+            ]
+        )
+        expected_atoms.extend(item.sample.expected.required_atoms)
+        expected_gaps.extend(item.sample.expected.required_gaps)
+        observed_gaps.extend(_observed_gap_labels(explanation))
+        if item.sample.expected.conflicts or item.sample.expected.conflict_group_expected:
+            conflict_items += 1
+            conflicts_preserved += 1 if _exposes_conflict(item) else 0
+    return LayerResult(
+        layer="explanation",
+        mode=mode,
+        status="measured",
+        metrics={
+            "annotated_samples": len(annotated),
+            "required_atom_coverage": coverage_by_contains(
+                expected_atoms, observed_atoms
+            ),
+            "citations_resolvable": rate_with_interval(resolvable, total_atoms),
+            "unsupported_atom_rate": rate_with_interval(isolated, total_atoms),
+            "gap_disclosure": (
+                coverage_by_contains(expected_gaps, observed_gaps)
+                if expected_gaps
+                else None
+            ),
+            "conflict_preservation": (
+                rate_with_interval(conflicts_preserved, conflict_items)
+                if conflict_items
+                else None
+            ),
+        },
+        sample_ids=tuple(item.sample_id for item in annotated),
+        notes=(
+            "A required atom counts as covered when the response carries its "
+            "text; a citation is resolvable when the atom keeps a revision-bound "
+            "source reference and a locator; an atom the validator had to "
+            "isolate is reported as an unsupported-atom rate.",
+        ),
+    )
+
+
+def _explanation_payload(response: Mapping[str, Any] | None) -> Mapping[str, Any]:
+    if not isinstance(response, Mapping):
+        return {}
+    explanation = response.get("explanation")
+    return explanation if isinstance(explanation, Mapping) else {}
+
+
+def _atom_citation_resolvable(atom: Mapping[str, Any]) -> bool:
+    reference = atom.get("source_reference")
+    if not isinstance(reference, Mapping):
+        return False
+    if not str(reference.get("source_revision_id") or ""):
+        return False
+    if not str(reference.get("path") or ""):
+        return False
+    return bool(atom.get("locator"))
+
+
+def _observed_gap_labels(explanation: Mapping[str, Any]) -> list[str]:
+    """Both labels a disclosed gap can be annotated by: its sentence and its code.
+
+    The payload lists gap atom ids and keeps the wording and the machine code on
+    the atoms themselves, so an annotation may quote the sentence a person read
+    or name the gap code the build used.
+    """
+
+    labels: list[str] = []
+    for atom in explanation.get("atoms") or ():
+        if not isinstance(atom, Mapping):
+            continue
+        roles = atom.get("roles")
+        roles = roles if isinstance(roles, Mapping) else {}
+        code = str(roles.get("gap_code") or "")
+        if code or str(atom.get("section") or "") == "relevant_source_gaps":
+            labels.append(str(atom.get("text") or ""))
+            labels.append(code)
+    return [label for label in labels if label]
 
 
 def _statement_layer(mode: str, items: Sequence[ItemResult]) -> LayerResult:
-    claims = [claim for item in items for claim in _item_claims(item)]
+    supported = [(item, _item_claims(item)) for item in items]
+    claims = [claim for _, item_claims in supported for claim in item_claims]
     if not claims:
         return LayerResult(
             layer="statement_fidelity",
@@ -761,6 +1240,9 @@ def _statement_layer(mode: str, items: Sequence[ItemResult]) -> LayerResult:
             "traceable_claims": traceable,
             "evidence_support_rate": traceable / len(claims),
         },
+        sample_ids=tuple(
+            item.sample_id for item, item_claims in supported if item_claims
+        ),
     )
 
 
@@ -778,6 +1260,7 @@ def _retrieval_layer(mode: str, items: Sequence[ItemResult]) -> LayerResult:
         )
 
     recalls: list[float | None] = []
+    recalls_1: list[float | None] = []
     recalls_5: list[float | None] = []
     precisions: list[float | None] = []
     ranks: list[float] = []
@@ -798,11 +1281,18 @@ def _retrieval_layer(mode: str, items: Sequence[ItemResult]) -> LayerResult:
             for expectation in expectations
         ]
         recalls.append(recall_at_k(ranked, wanted, limit))
+        recalls_1.append(recall_at_k(ranked, wanted, 1))
         recalls_5.append(recall_at_k(ranked, wanted, 5))
         precisions.append(precision_at_k(ranked, wanted, limit))
         ranks.append(reciprocal_rank(ranked, wanted))
 
     false_positives = sum(1 for item in no_answer if item.observed_state in FOUND_FAMILY)
+    answerable = [
+        item for item in items if item.sample.expected.response_state == "found"
+    ]
+    false_negatives = sum(
+        1 for item in answerable if item.observed_state not in FOUND_FAMILY
+    )
     return LayerResult(
         layer="retrieval",
         mode=mode,
@@ -810,6 +1300,7 @@ def _retrieval_layer(mode: str, items: Sequence[ItemResult]) -> LayerResult:
         metrics={
             "samples_scored": len(scored),
             "recall_at_limit": mean_ignoring_none(recalls),
+            "recall_at_1": mean_ignoring_none(recalls_1),
             "recall_at_5": mean_ignoring_none(recalls_5),
             "precision_at_limit": mean_ignoring_none(precisions),
             "mrr": mean_ignoring_none(ranks),
@@ -817,9 +1308,12 @@ def _retrieval_layer(mode: str, items: Sequence[ItemResult]) -> LayerResult:
                 locator_hits / locator_total if locator_total else None
             ),
             "no_answer_samples": len(no_answer),
-            "no_answer_false_positives": false_positives,
-            "no_answer_false_positive_rate": (
-                false_positives / len(no_answer) if no_answer else None
+            "no_answer_false_positives": rate_with_interval(
+                false_positives, len(no_answer)
+            ),
+            "answerable_samples": len(answerable),
+            "no_answer_false_negatives": rate_with_interval(
+                false_negatives, len(answerable)
             ),
         },
         sample_ids=tuple(item.sample_id for item in scored + no_answer),
@@ -881,6 +1375,34 @@ def _performance_layer(
             ),
         },
         sample_ids=tuple(sample_ids),
+    )
+
+
+def _capability_results(items: Sequence[ItemResult]) -> tuple[CapabilityResult, ...]:
+    """One result per declared capability pack, never merged with another.
+
+    A sample can declare more than one pack, and it is counted under each of
+    them: a pack that depends on a capability the run could not exercise has to
+    show its own response states instead of borrowing a green one.
+    """
+
+    buckets: dict[str, dict[str, Any]] = {}
+    for item in items:
+        for capability in item.sample.capabilities:
+            bucket = buckets.setdefault(
+                capability, {"modes": set(), "states": [], "samples": set()}
+            )
+            bucket["modes"].add(item.mode)
+            bucket["states"].append((item.expected_state, item.observed_state))
+            bucket["samples"].add(item.sample_id)
+    return tuple(
+        CapabilityResult(
+            capability=capability,
+            sample_count=len(bucket["samples"]),
+            modes=tuple(sorted(bucket["modes"])),
+            response_states=response_state_confusion(bucket["states"]),
+        )
+        for capability, bucket in sorted(buckets.items())
     )
 
 
@@ -946,6 +1468,10 @@ def _write_artifacts(run: EvaluationRun, runs_directory: Path) -> dict[str, Path
             ],
             environment=dict(run.manifest.environment),
             extra_notes=run.failure_summary() or run.notes,
+            capability_results=run.capability_results,
+            hardware_profile=str(
+                run.manifest.environment.get("hardware_profile") or ""
+            ),
         ),
         encoding="utf-8",
     )

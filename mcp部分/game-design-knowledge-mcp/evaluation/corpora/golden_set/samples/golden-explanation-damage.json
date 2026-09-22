@@ -1,0 +1,39 @@
+{
+  "sample_id": "golden-explanation-damage",
+  "stratum": {
+    "source_type": "docx",
+    "content_type": "rule_text",
+    "language": "zh",
+    "visual_quality": "n/a",
+    "structure_complexity": "simple",
+    "notation_complexity": "none",
+    "conflict_state": "none",
+    "capability_pack": "core",
+    "difficulty": "hard"
+  },
+  "documents": [{ "path": "战斗规则.docx" }],
+  "tool": "explain_query",
+  "arguments": { "query": "伤害计算", "profile": "standard" },
+  "expected": {
+    "response_state": "found",
+    "allowed_answer_set": [
+      "最终伤害等于攻击力乘以暴击倍率。",
+      "暴击倍率为1.5。"
+    ],
+    "required_evidence": [],
+    "required_gaps": ["missing_unit"],
+    "conflict_group_expected": false,
+    "required_atoms": [
+      "最终伤害等于攻击力乘以暴击倍率。",
+      "暴击倍率为1.5。"
+    ]
+  },
+  "annotation": {
+    "annotators": ["synthetic-pass-a", "synthetic-pass-b"],
+    "adjudicated": true,
+    "guide_version": "eval-guide-0.1"
+  },
+  "modes": ["component", "e2e"],
+  "capabilities": ["core"],
+  "notes": "释义层必需 atom 用原文句子标注；“1.5”缺单位属于 Related Source Gaps，必须披露而不是替用户补一个单位。"
+}

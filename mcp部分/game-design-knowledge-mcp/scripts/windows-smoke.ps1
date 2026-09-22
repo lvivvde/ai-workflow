@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Windows 原生验收脚本：检查依赖、建索引、跑 MCP smoke test，并按 Hardware Profile 写运行记录。
 

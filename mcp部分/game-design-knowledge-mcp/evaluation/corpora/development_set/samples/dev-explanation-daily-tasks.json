@@ -1,0 +1,36 @@
+{
+  "sample_id": "dev-explanation-daily-tasks",
+  "stratum": {
+    "source_type": "docx",
+    "content_type": "rule_text",
+    "language": "zh",
+    "visual_quality": "n/a",
+    "structure_complexity": "simple",
+    "notation_complexity": "none",
+    "conflict_state": "none",
+    "capability_pack": "core",
+    "difficulty": "hard"
+  },
+  "documents": [{ "path": "玩法说明.docx" }],
+  "tool": "explain_query",
+  "arguments": { "query": "每日任务", "profile": "standard" },
+  "expected": {
+    "response_state": "found",
+    "allowed_answer_set": ["每日任务在04:00重置。", "完成3个每日任务可领取宝箱。"],
+    "required_evidence": [],
+    "required_gaps": ["missing_trigger"],
+    "conflict_group_expected": false,
+    "required_atoms": [
+      "每日任务在04:00重置。",
+      "完成3个每日任务可领取宝箱。"
+    ]
+  },
+  "annotation": {
+    "annotators": ["synthetic-pass-a", "synthetic-pass-b"],
+    "adjudicated": true,
+    "guide_version": "eval-guide-0.1"
+  },
+  "modes": ["component", "e2e"],
+  "capabilities": ["core"],
+  "notes": "释义层按必需 atom、引用可解析、缺口披露和无依据事实率分别打分：必需 atom 用原文句子标注，缺口用 gap_code 标注，运行必须至少披露一次该缺口。"
+}

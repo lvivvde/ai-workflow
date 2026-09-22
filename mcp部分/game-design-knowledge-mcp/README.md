@@ -84,6 +84,12 @@ uv run python tools/evaluate.py `
 
 评测不产出混合总分，缺失能力如实记为 `unavailable`；任一 invariant 违规即退出码 `1` 并点名样本。协议细节见 [`evaluation/README.md`](evaluation/README.md)。
 
+Windows 上按三档 Hardware Profile 生成分层基线（同时判质量门槛）：
+
+```powershell
+.\scripts\windows-baseline.ps1
+```
+
 真实启动 stdio MCP 并调用 `index_status`：
 
 ```powershell
@@ -290,3 +296,5 @@ $env:GAME_DESIGN_OCR_TIMEOUT = "60"
 - [`docs/notation.md`](docs/notation.md)：记法字典的范围与来源优先级、Review Action 预览令牌、冲突裁决与版本迁移。
 - [`docs/explanation.md`](docs/explanation.md)：三档 Explanation Profile、Atom 契约、措辞纪律、冲突与缺口、Source-as-Data 边界、Validator 与分页。
 - [`evaluation/README.md`](evaluation/README.md)：分层评测协议、语料格式和 Release-blocking invariants。
+- [`evaluation/annotation-guide.md`](evaluation/annotation-guide.md)：标注协议（单人抽检 vs 高风险双人裁决、Allowed Answer Set、记法/冲突/缺口标注法）。
+- [`evaluation/quality-gates.md`](evaluation/quality-gates.md)：发布门槛的判定顺序、错误分类、相对回退限制与阈值取法。

@@ -9,6 +9,11 @@ import sys
 
 from game_design_knowledge.evaluation import load_corpus, run_evaluation
 from game_design_knowledge.evaluation.corpus import refresh_manifest
+from game_design_knowledge.evaluation.gates import (
+    DEFAULT_GATES_PATH,
+    evaluate_gates,
+    load_gates,
+)
 from game_design_knowledge.evaluation.schema import EVALUATION_MODES
 
 
@@ -80,6 +85,23 @@ def main() -> int:
         action="store_true",
         help="Run without writing run artifacts",
     )
+    parser.add_argument(
+        "--gates",
+        type=Path,
+        default=DEFAULT_GATES_PATH,
+        help="Quality gate set to judge the run with",
+    )
+    parser.add_argument(
+        "--no-gates",
+        action="store_true",
+        help="Report the layers without judging any gate",
+    )
+    parser.add_argument(
+        "--baseline",
+        type=Path,
+        default=None,
+        help="Earlier run.json the relative regression limits compare against",
+    )
     arguments = parser.parse_args()
 
     corpora_paths = tuple(arguments.corpora or DEFAULT_CORPORA)
@@ -99,6 +121,21 @@ def main() -> int:
     )
     print(json.dumps(run.as_payload(), ensure_ascii=False, indent=2))
 
+    if arguments.no_gates:
+        print("\ngates: skipped (--no-gates)", file=sys.stderr)
+        return 0 if run.ok else 1
+    baseline = (
+        json.loads(arguments.baseline.read_text(encoding="utf-8"))
+        if arguments.baseline is not None
+        else None
+    )
+    report = evaluate_gates(
+        load_gates(arguments.gates),
+        run.as_payload()["layers"],
+        baseline=baseline,
+    )
+    print(json.dumps({"gates": report.as_payload()}, ensure_ascii=False, indent=2))
+
     failures = run.failure_summary()
     if failures:
         print("\nFAILED:", file=sys.stderr)
@@ -106,7 +143,13 @@ def main() -> int:
             print(f"  {failure}", file=sys.stderr)
         return 1
     print(f"\n{run.run_id}: all release-blocking invariants passed")
-    return 0
+    if report.ok:
+        print("quality gates: passed")
+        return 0
+    print("quality gates: FAILED", file=sys.stderr)
+    for followup in report.followups():
+        print(f"  [{followup['error_class']}] {followup['task']}", file=sys.stderr)
+    return 1
 
 
 if __name__ == "__main__":

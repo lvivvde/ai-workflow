@@ -1,0 +1,48 @@
+{
+  "sample_id": "dev-docx-embedded-image-flow",
+  "stratum": {
+    "source_type": "embedded_image",
+    "content_type": "image_text",
+    "language": "zh",
+    "visual_quality": "clean",
+    "structure_complexity": "simple",
+    "notation_complexity": "arrow",
+    "conflict_state": "none",
+    "capability_pack": "core",
+    "difficulty": "hard"
+  },
+  "documents": [{ "path": "连招与记法.docx" }],
+  "tool": "search_images",
+  "arguments": { "query": "连招流程", "limit": 10 },
+  "expected": {
+    "response_state": "found",
+    "allowed_answer_set": ["连招流程"],
+    "required_evidence": [
+      {
+        "source_document": "连招与记法.docx",
+        "locator_contains": { "paragraph_index": 2 },
+        "text": "连招流程"
+      }
+    ],
+    "required_gaps": [],
+    "conflict_group_expected": false,
+    "transcription": {
+      "text": "起手 追击 收招",
+      "critical_tokens": ["→"],
+      "regions": ["起手", "追击", "收招"],
+      "reading_order": ["起手", "追击", "收招"]
+    },
+    "relations": [
+      { "source": "起手", "target": "追击", "kind": "next_step" },
+      { "source": "追击", "target": "收招", "kind": "next_step" }
+    ]
+  },
+  "annotation": {
+    "annotators": ["synthetic-pass-a", "synthetic-pass-b"],
+    "adjudicated": true,
+    "guide_version": "eval-guide-0.1"
+  },
+  "modes": ["component", "e2e"],
+  "capabilities": ["core"],
+  "notes": "内嵌图片的命中必须带段落定位。标注的转写与箭头关系描述这张合成图应表达的内容，本机没有 OCR 引擎时二者都应记为 unavailable。"
+}

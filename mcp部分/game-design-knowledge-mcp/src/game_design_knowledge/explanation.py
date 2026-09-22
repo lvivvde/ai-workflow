@@ -1309,7 +1309,7 @@ def _conflict_atoms(
     claims: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for index, (facts, builder) in enumerate(entries):
         for fact in facts:
-            topic = _claim_topic(str(fact["source_excerpt"]))
+            topic = claim_topic(str(fact["source_excerpt"]))
             if not topic:
                 continue
             for match in VALUE_PATTERN.finditer(str(fact["source_excerpt"])):
@@ -1404,12 +1404,43 @@ def _conflict_atoms(
     return atoms, groups
 
 
-def _claim_topic(sentence: str) -> str:
+def claim_topic(sentence: str) -> str:
+    """The value-free topic two statements must share to be one claim.
+
+    Numbers, units and punctuation are stripped, because a disagreement about
+    the value of one claim has to leave the same topic behind on both sides.
+    Anything too short or too long to be a topic is refused instead of guessed.
+    """
+
     stripped = VALUE_PATTERN.sub(" ", sentence)
     stripped = re.sub(r"[，,。；;:：、（）()\s]+", "", stripped)
     if len(stripped) < 2 or len(stripped) > 12:
         return ""
     return stripped
+
+
+def claim_values(sentence: str) -> list[dict[str, str]]:
+    """Every number a statement writes, with its own unit and comparator.
+
+    The source's own writing is kept: ``≤30 秒`` stays a comparator, a number
+    and a unit instead of becoming a normalised quantity, so two sides of a
+    conflict can be compared without either side being rewritten.
+    """
+
+    values: list[dict[str, str]] = []
+    for match in VALUE_PATTERN.finditer(str(sentence or "")):
+        raw = match.group(0).strip()
+        if not raw:
+            continue
+        values.append(
+            {
+                "value": match.group("number"),
+                "unit": match.group("unit") or "",
+                "comparator": match.group("comparator") or "",
+                "source_expression": raw,
+            }
+        )
+    return values
 
 
 def _source_label(side: Mapping[str, Any]) -> str:
@@ -2373,6 +2404,8 @@ __all__ = [
     "SECTION_ORDER",
     "SOURCE_AS_DATA_BOUNDARY",
     "build_explanation",
+    "claim_topic",
+    "claim_values",
     "term_expansions",
     "unit_texts",
     "validate_explanation",

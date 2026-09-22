@@ -96,6 +96,15 @@ explain_query(query, document_type="", profile="full", language="zh", unit_limit
 
 两个工具先用确定性证据规则构建结构化 Explanation Atom，再渲染 Brief/Standard/Full（默认 `full`）；`explain_evidence` 解释单个 Retrieval Unit 用的是 `get_evidence_package` 的同一批层，`explain_query` 把一个问题的命中单元一起解释并在 `retrieval.channels` 报告各通道命中。每个 Atom 自带 Source Reference、Locator 与最小原文片段，冲突双方分别成 Atom 且顶层 `conflicts` 完整暴露，`brief` 也不会省略会改变结论的冲突、缺口和定位；没有本地语言模型时模板渲染仍满足完整契约。详见 [`explanation.md`](explanation.md)。
 
+V2 混合检索与证据回读：
+
+```text
+retrieve_evidence(query, document_type=None, evidence_type=None, limit=20,
+                  mode="auto", include_candidates=False, document="")
+```
+
+`retrieve_evidence` 是 V2 检索面：保留原查询，只用已确认记法字典与玩法别名做确定性扩展，再走命名空间隔离的 `exact`、`lexical`（FTS5）、`confirmed_alias`、`structures` 等通道。每个候选在返回前回读当前索引并带稳定 locator，无法回读的命中只作为 Untraceable Candidate；同一 scoped claim 的多侧证据结构化为 Conflict Group（`winner=null`）或 Potential Conflict Candidate，冲突扫描会补回未被查询命中的对侧，高排名不掩盖不同的值、单位、版本或时间。`mode` 取 `lexical`、`auto`（默认）、`hybrid`、`semantic`；没有向量能力时显式降级为 `auto` 并报告 `degradation_events`，字典或命名空间不可用时给出显式 degradation 而核心 FTS5 继续工作。`status` 为 `found`、`not_found`、`partial`、`ambiguous`、`degraded`、`failed` 之一；`search_evidence` 保持冻结的 V1 词法检索不变。详见 [`retrieval.md`](retrieval.md)。
+
 策划记法字典与人工审核：
 
 ```text

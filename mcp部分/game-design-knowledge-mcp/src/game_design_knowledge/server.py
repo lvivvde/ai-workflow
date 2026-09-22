@@ -46,6 +46,12 @@ from .index_revisions import (
 )
 from .notation import dictionary_view, resolve as resolve_notation_entry
 from .policy import EVIDENCE_POLICY
+from .retrieval import (
+    DEFAULT_MODE as DEFAULT_RETRIEVAL_MODE,
+    MAX_LIMIT as MAX_RETRIEVAL_LIMIT,
+    RETRIEVAL_MODES,
+    retrieve as retrieve_units,
+)
 from .review import (
     apply_review_action as build_review_application,
     plan_review_action as build_review_plan,
@@ -357,6 +363,83 @@ def _detect_evidence_conflicts(
             }
         )
     return conflicts
+
+
+@mcp.tool()
+def retrieve_evidence(
+    query: str,
+    document_type: str | None = None,
+    evidence_type: str | None = None,
+    limit: int = 20,
+    mode: str = DEFAULT_RETRIEVAL_MODE,
+    include_candidates: bool = False,
+    document: str = "",
+) -> dict[str, object]:
+    """Retrieve candidate evidence, read it back, and keep conflicts visible.
+
+    The V2 retrieval base: the original query plus the deterministic expansions
+    the confirmed notation dictionary and the feature catalogue allow, SQLite
+    FTS5, and -- only when explicitly asked for -- the unconfirmed candidates of
+    the exploration mode. Every candidate is read back from the current index
+    before it is returned, a disagreement between two sources stays two sides of
+    one claim, and a capability this build cannot run is reported as a
+    degradation instead of being hidden behind a narrower answer.
+
+    ``search_evidence`` stays the frozen V1 lexical search; this tool is the V2
+    surface, and its status is one of ``found``, ``not_found``, ``partial``,
+    ``ambiguous``, ``degraded`` or ``failed``.
+    """
+
+    query = str(query or "").strip()
+    if not query:
+        raise ValueError("query must not be empty")
+    if mode not in RETRIEVAL_MODES:
+        raise ValueError(
+            f"mode must be one of {list(RETRIEVAL_MODES)}, not {mode!r}"
+        )
+    if limit < 1 or limit > MAX_RETRIEVAL_LIMIT:
+        raise ValueError(f"limit must be between 1 and {MAX_RETRIEVAL_LIMIT}")
+
+    database_path = _database_path()
+    notation, degradations = _retrieval_notation()
+    with SharedIndexRead(database_path) as index:
+        return index.complete(
+            retrieve_units(
+                index,
+                query=query,
+                document_type=document_type or None,
+                evidence_type=evidence_type or None,
+                limit=limit,
+                mode=mode,
+                include_candidates=bool(include_candidates),
+                document=document,
+                notation=notation,
+                degradations=degradations,
+            )
+        )
+
+
+def _retrieval_notation() -> tuple[dict[str, object] | None, list[dict[str, object]]]:
+    """The confirmed notation dictionary, or why retrieval ran without it.
+
+    A dictionary this build cannot read never blocks a fact query: the query
+    loses its deterministic expansions and says so, while the source facts and
+    FTS5 keep working.
+    """
+
+    try:
+        return _durable_state().read_notation(), []
+    except (RuntimeError, OSError, ValueError) as error:
+        return None, [
+            {
+                "channel": "notation_dictionary",
+                "reason": "capability_unavailable",
+                "detail": (
+                    f"确认记法字典不可用（{error}），本次检索没有使用局部定义与"
+                    "确认别名扩展；原文、配置事实与 FTS5 不受影响。"
+                ),
+            }
+        ]
 
 
 @mcp.tool()

@@ -54,13 +54,13 @@ uv run python tools/evaluate.py `
 |---|---|
 | `source_import` | 已测量：文档数、图片数、schema 版本、是否过期 |
 | `ocr_transcription` | 已测量：区域数、降级/回退/低质量计数、machine-supported 计数；CER/WER 与关键标记评分等 Golden Set（V2-12）提供带标注语料后启用 |
-| `layout_regions` | `unavailable`，当前构建未上报区域能力 |
-| `reading_order_relations` | `unavailable` |
-| `notation_resolution` | `unavailable` |
+| `layout_regions` | 本示例语料为 `unavailable`（语料图片未进入布局规则集），因为这一层只按语料如实上报；能力已交付（`layout-regions-v1`），语料有图片且进入规则集时改报：图片数、layout run、元素数、元素/图、几何不确定图片计数与规则版本。逐图排序准确率等 Golden Set（V2-12）提供带标注语料后启用 |
+| `reading_order_relations` | 同 `layout_regions`：本示例语料为 `unavailable`；能力已交付（`flow-arrow-v1`），有图片样本时上报关系数、confirmed/candidate 拆分、不确定关系计数与规则版本。Precision/Recall/F1 等 Golden Set（V2-12）提供带标注语料后启用 |
+| `notation_resolution` | `unavailable`，但能力已交付（`designer-notation-v1`，仅 confirmed 条目）；缺的是带标注的记号样本，故本轮不测量 |
 | `statement_fidelity` | 已测量：声明数与可溯源比例 |
 | `retrieval` | 已测量：recall@limit、precision、MRR、无答案误报 |
 | `conflict_and_response_state` | 已测量：冲突保留率、期望→观测状态矩阵 |
-| `explanation` | `unavailable` |
+| `explanation` | `unavailable`，但能力已交付（`explanation-v1`：brief/standard/full）；缺的是带标注的释义样本，故本轮不测量 |
 | `performance_and_degradation` | 已测量：P50/P95 延迟、建库耗时、峰值内存、工作区体积、降级事件 |
 
 `unavailable` 是如实报告，不是通过。任何一层都不会被折叠进单一分数。

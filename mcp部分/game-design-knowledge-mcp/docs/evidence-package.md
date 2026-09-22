@@ -24,7 +24,7 @@ image:<image_id>         一张图片（内嵌图片或独立图片）
 | `transcription` | OCR 运行摘要 + 逐区域转录（三个置信度、关键 token、规范化建议） |
 | `visual_interpretation` | 阅读顺序运行摘要 + 逐 Visual Element（行、列、`depth_hint`） |
 | `notation` | 逐 Structural Relation（端点、几何依据、规则版本、`claim_boundary`） |
-| `explanation` | 本构建不提供解释画像，固定报告 `no_explanation_profile` |
+| `explanation` | 该单元的 Brief/Standard/Full 释义（默认 `full`），带 `expand.tool=explain_evidence`；只有该单元确实没有可解释内容时才报 `no_explanation_profile` |
 | `uncertainties` | 逐条不确定项；几何不确定性与 OCR 不确定性分开标注 |
 
 `provenance` 与 `unavailable` 不参与分页，每次整份返回。前者说明这份包来自哪次构建（build / run、processing fingerprint、schema 版本、参与规则集、OCR 引擎），后者逐条说明哪一层为什么没有内容。两者的存在是为了让「这一层是空的」永远不同于「这一层没有被服务」。

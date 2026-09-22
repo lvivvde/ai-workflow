@@ -85,6 +85,17 @@ get_processing_manifest()
 
 `get_evidence_package` 以 `evidence:<id>` / `image:<id>` 为锚点，把 source、statement、transcription、visual_interpretation、notation、explanation、uncertainties 分层返回，并整份带上 provenance 与逐层 unavailable；`get_asset` 只接受索引签发的 Asset Reference，不接受任何文件路径；`get_processing_manifest` 返回运行清单、逐 stage 尝试与 degradation 事实。四个工具都是只读新增，V1 工具在未显式请求 V2 元数据时字段与默认行为不变，详见 [`evidence-package.md`](evidence-package.md)。
 
+分层详尽释义：
+
+```text
+explain_evidence(unit_id, profile="full", language="zh", cursor="", page_size=40,
+                 include_source_language=False)
+explain_query(query, document_type="", profile="full", language="zh", unit_limit=5,
+              cursor="", page_size=40, include_source_language=False)
+```
+
+两个工具先用确定性证据规则构建结构化 Explanation Atom，再渲染 Brief/Standard/Full（默认 `full`）；`explain_evidence` 解释单个 Retrieval Unit 用的是 `get_evidence_package` 的同一批层，`explain_query` 把一个问题的命中单元一起解释并在 `retrieval.channels` 报告各通道命中。每个 Atom 自带 Source Reference、Locator 与最小原文片段，冲突双方分别成 Atom 且顶层 `conflicts` 完整暴露，`brief` 也不会省略会改变结论的冲突、缺口和定位；没有本地语言模型时模板渲染仍满足完整契约。详见 [`explanation.md`](explanation.md)。
+
 策划记法字典与人工审核：
 
 ```text

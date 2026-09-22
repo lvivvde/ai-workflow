@@ -42,6 +42,7 @@ game-design-knowledge-mcp/
 - 导入和重建共享索引必须先预览、再由用户明确确认。
 - 冻结 V1 公共契约，并用分层离线评测加五条 Release-blocking invariant 守住兼容性和证据安全。
 - 从 OCR 区域还原图片阅读顺序与「文本 → 向下箭头 → 下一行文本」结构：箭头是独立块且上下各一个对齐块时才确认 `next_step`，分支、连续箭头、缺失端点、跨容器与缩进一律只记为 candidate 或 `depth_hint`，并分列报告几何与 OCR 两种置信度。
+- 把证据包渲染成 Brief/Standard/Full 三档可追溯释义：先构建结构化 Explanation Atom，再按 13 个章节渲染；每个 Atom 自带来源与定位，冲突双方各自成 Atom 且不做取舍，来源没写的目的保持未知。
 
 正式规格见 [`docs/spec.md`](docs/spec.md)，数据模型见 [`docs/data-model.md`](docs/data-model.md)，布局与箭头规则见 [`docs/layout.md`](docs/layout.md)。
 
@@ -174,6 +175,7 @@ MCP 客户端配置示例：
 |---|---|
 | 查询图片 | `search_images`、`get_image_context` |
 | 分层证据包与资产 | `get_evidence_package`、`get_evidence_packages`、`get_asset`、`get_processing_manifest` |
+| 分层详尽释义 | `explain_evidence`、`explain_query` |
 | 记法字典与人工审核 | `notation_dictionary`、`resolve_notation`、`plan_review_action`、`apply_review_action`、`review_history` |
 | 查询正文证据 | `search_evidence`、`get_evidence` |
 | 查询配置 | `search_config_cells`、`get_sheet_range` |
@@ -210,6 +212,12 @@ MCP 客户端配置示例：
 含义必须带范围（`project` / `document_type` / `document` / `region`），范围之外不会被顺手继承；索引提出的读法只是候选，永远不能当作 Project Fact。存在分歧时答案停在 `ambiguous`，必须用 `resolve_conflict` 记录一次裁决（按来源权威，或人工选择）。
 
 写操作一律两步：`plan_review_action` 先给预览与 `plan_token`，`apply_review_action` 带同一 token 且 `confirmed=true` 才落盘；每次应用先追加一条不可变 Review Event、再物化视图。新修订不会自动继承旧确认，只会产生 migration candidate。完整契约见 [`docs/notation.md`](docs/notation.md)。
+
+## 分层详尽释义
+
+`explain_evidence(unit_id)` 解释单个检索单元，`explain_query(query)` 把一个问题的命中单元一起解释。两者都用确定性证据规则先构建结构化 Explanation Atom，再按 Brief、Standard 或 Full（默认）渲染：每个 Atom 独立可追溯，`rendered.sentence_map` 把每个分句映射回 Atom 与证据。
+
+三档都不会省略会改变结论的内容——冲突双方各自成 Atom 并生成 Conflict Group（`winner=null`），直接结论固定说「现有证据支持多个解释，不能确定唯一答案」；Relevant Source Gaps 与最精确来源位置在 `brief` 里也保留。数值与比较符原样保留（`<` 不改写成 `≤`），关系只用受控措辞，来源没写设计目的时返回未知。没有本地语言模型时模板渲染即满足完整契约，可选的本地润色器只能改写措辞；来源里的提示注入文本只被引用和标记，不改变 Profile、证据门槛或工具权限。完整契约见 [`docs/explanation.md`](docs/explanation.md)。
 
 ## 文档证据政策
 
@@ -248,4 +256,5 @@ $env:GAME_DESIGN_OCR_TIMEOUT = "60"
 - [`docs/processing.md`](docs/processing.md)：处理阶段、指纹与缓存契约、能力包与降级语义。
 - [`docs/ocr.md`](docs/ocr.md)：区域级 OCR 的分层输出、三类置信度、关键标记评分与状态映射。
 - [`docs/notation.md`](docs/notation.md)：记法字典的范围与来源优先级、Review Action 预览令牌、冲突裁决与版本迁移。
+- [`docs/explanation.md`](docs/explanation.md)：三档 Explanation Profile、Atom 契约、措辞纪律、冲突与缺口、Source-as-Data 边界、Validator 与分页。
 - [`evaluation/README.md`](evaluation/README.md)：分层评测协议、语料格式和 Release-blocking invariants。

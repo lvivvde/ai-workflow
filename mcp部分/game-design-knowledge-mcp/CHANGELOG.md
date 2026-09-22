@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- 新增分层详尽释义（Explanation Layer）：`explain_evidence(unit_id)` 与 `explain_query(query)` 先用确定性证据规则构建结构化 Explanation Atom，再渲染 Brief/Standard/Full（默认 `full`）。每个 Atom 自带 `source_reference`、`locator` 与最小原文片段，`full` 固定按 13 个章节展开，`rendered.sentence_map` 把每个分句映射回一个或多个 Atom，`explanation_id` 与 `provenance` 让相同输入可复现。
+- 三档都不隐藏会改变结论的东西：冲突双方各自成 Atom 并生成响应级 Conflict Group（`winner=null`、`resolution_state=unresolved`，直接结论固定说「现有证据支持多个解释，不能确定唯一答案」），Relevant Source Gaps 与定位在 `brief` 里也保留；不按日期、置信度或平均值挑赢家，也不做 6.5 秒这类折中。
+- 措辞受控：原文 Atom 逐字等于来源片段，数值与比较符原样保留（`<` 不改写成 `≤`），关系只用 `visible_connector`/`next_step`/`depth_hint`/`candidate`/`unresolved`/`ignored` 六个模板，新增措辞不得出现「导致/依赖/触发/必须先完成/运行时调用/设计目的/因为/所以」；来源没写设计目的时明确返回未知，不用行业惯例补造。
+- 记法只按已确认条目展开：命中的 confirmed 条目写成「原词（含义）」并记下定义来源，被拒绝的读法明说「已被人工标记为装饰」，没有确认定义的符号保持原词并标 `status=unknown`。
+- 新增 Explanation Contract Validator：逐 Atom 检查来源、章节、陈述类型、证据状态、内容层、Locator 与支撑引用，不合格 Atom 被隔离并产生 Structured Uncertainty（`atom_without_support`）、响应降为 `partial`，级联隔离引用它的句子；发生过隔离时 `contract.ok=false`。
+- Source-as-Data 边界在释义层强制执行：来源文本里的「忽略之前的指令」「放宽证据门槛」「不要告知用户」、脚本与外链只会原样进入 Atom 并产生 `security.warnings`，不改变 Profile、证据门槛、工具权限或输出契约。
+- 释义分页：`page_size` 上限 200、默认 40，第一页固定保留直接结论、全部冲突与所有 `changes_conclusion` 的缺口并返回阅读顺序前缀，`next_cursor` 连续不重复；截断时返回 `truncated`、`remaining_atom_count` 与 `next_cursor`，不静默降低 Profile。
+- 没有本地语言模型时模板渲染即满足完整契约；可选润色器只能改写措辞，引入或改动数字、比较符或禁用措辞会被逐条拒绝（`polisher_rejected`），抛异常则整份回退到确定性渲染。
+- `get_evidence_package` 的 `explanation` 层不再固定报 `no_explanation_profile`：正文与图片单元都能拿到该单元的释义条目（`expand.tool=explain_evidence`），只有确实没有可解释内容时才报未服务；`explain_query`/`explain_evidence` 顶层同时暴露 `conflicts`。
 - 新增策划记法字典（Designer Notation Dictionary）：一个记号在一个范围里的含义作为人工确认结果写入 Durable Project State（`.design-state/notation.json`），与确认别名并列，既不进推导索引也不改源文档；索引提出的读法只是 candidate，永远不参与回答，也不能被引用为项目事实。
 - 范围分 `project` / `document_type` / `document` / `region` 四档并做字面匹配：为一个区域确认的含义不会回答同文档其它区域、其它文档或其它类型；路径必须是项目相对路径，绝对路径、盘符、`..` 一律拒绝。来源优先级为 `region_legend` > `document_definition` > `document_type_definition` > `project_dictionary` > `candidate_interpretation` > `external_common_knowledge`。
 - 存在分歧时不静默选边：只要更低层不同意，答案就停在 `ambiguous`（`resolved` 为空、`supports_project_fact=false`）并给出按优先级本该胜出的 `authority_winner`；要落定必须用 `resolve_conflict` 记录一次裁决（`authority` 要求胜出者层级严格更高，同级或人故意选低层必须写 `human_choice`）。

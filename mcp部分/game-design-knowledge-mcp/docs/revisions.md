@@ -41,7 +41,11 @@ logical document ──► source revision ──► parse revision ──► pu
 ├── knowledge.sqlite
 ├── assets/
 └── build.json                   # 状态机：planned → running → validated → published / failed
+
+<项目根>/.index/.knowledge.cache/stages/<stage>/<fingerprint>.json   # 内容寻址的 stage 缓存，可丢弃
 ```
+
+stage 缓存刻意放在索引目录同级：`.index/knowledge/` 要保持读取方期望的形状，而且首次构建失败时不能留下半个索引目录。删掉缓存只损失重算时间。
 
 `.design-state` 默认不进 Git：归档字节会让仓库翻倍，而随仓库提交的人工真源是 `knowledge/catalog.json` 与 `docs/`。删除 `.index`（含快照）后重建，Review Events、确认字典和逻辑文档身份都不会丢失。
 
@@ -81,5 +85,10 @@ game-design-knowledge migrate --database .index\knowledge\knowledge.sqlite
 ```
 
 - Schema v2 → v3：新增 `schema_migrations`、`index_builds`、`source_revisions`、`parse_revisions` 和 `documents` 的修订列。
+- Schema v3 → v4：新增 `processing_manifests` 与 `stage_attempts`，记录某次构建用了哪些 stage、引擎和降级链。
 - 迁移前备份到 `schema-backups/`；任一步失败或迁移后校验失败都会还原备份并报出原因。
 - Schema v1 与比当前更新的版本一律显式拒绝，不会被静默误读。
+
+## 处理指纹与运行清单
+
+Parse Revision 绑定的是 Configured Fingerprint：配置了哪些 stage、规则集版本、handler 与输出 schema。逐段的执行记录另有一套 Stage Fingerprint 与运行清单，含义、失效范围和缓存规则见 [`processing.md`](processing.md)。

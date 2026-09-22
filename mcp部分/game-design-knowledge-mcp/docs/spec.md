@@ -35,8 +35,12 @@
 
 ```text
 game-design-knowledge index <source> --output <index> [--project-root <project>]
+                     [--low-memory] [--idle-timeout <seconds>]
+game-design-knowledge capabilities
 game-design-knowledge migrate --database <index.sqlite> [--plan]
 ```
+
+`index` 现在是 8 个 stage 的流水线（见 [`processing.md`](processing.md)）：每次都写入不可变 Stage Attempt 与运行清单，可选能力缺失时明确降级、必选 stage 失败时退出码 1 且不发布索引。`--low-memory` 让能力包在批次结束时卸载，`--idle-timeout` 设置空闲驻留上限。`capabilities` 打印硬件画像、三类能力包的检查明细与当前驻留情况。
 
 CLI 写入同级不可变快照，校验通过后才发布；失败、中断或文件占用都不会替换已有索引。
 
@@ -66,9 +70,12 @@ get_sheet_range(workbook, sheet, range)
 plan_document_import(source_paths, destination="docs", operation="copy")
 import_documents(source_paths, plan_token, destination="docs", operation="copy", confirmed=False)
 rebuild_shared_index(confirmed=False)
+capability_status()
 ```
 
 三个写入工具遵循 [`import-policy.md`](import-policy.md)：预览不写入；导入必须携带未失效的计划令牌和明确确认；目标目录固定且禁止覆盖；建库失败时恢复文件并保留旧索引。
+
+`capability_status` 只读，报告本地能力包与本机资源，不安装、不下载任何东西。
 
 ## 统一查询结果
 

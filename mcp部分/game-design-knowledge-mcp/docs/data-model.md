@@ -5,12 +5,13 @@ SQLite 是可删除、可重建的派生索引。正式 `.index/knowledge` 会�
 ## Schema 版本
 
 ```sql
-PRAGMA user_version = 3;
+PRAGMA user_version = 4;
 ```
 
 版本不匹配时不读取、不猜测：
 
 - v2 → v3 走显式迁移（`game-design-knowledge migrate`），迁移前自动备份，失败还原。
+- v3 → v4 走显式迁移，新增处理清单与 stage 尝试两张表。
 - 更旧或更新的版本一律显式拒绝，并给出原因。
 
 详解见 [`revisions.md`](revisions.md)。
@@ -60,6 +61,25 @@ schema_migrations: version, applied_at, description, backup_path
 ```
 
 `index_builds` 记录每次构建实际使用的处理清单指纹和 parse revision 映射；`schema_migrations` 是显式迁移的审计记录。
+
+## processing_manifests / stage_attempts
+
+运行清单与它逐段的执行记录。两者都由构建过程写进快照，所以随索引一起发布；读取方式见 [`processing.md`](processing.md)。
+
+```text
+processing_manifests: build_id, run_id, created_at, configured_fingerprint,
+                      configured_manifest, run_manifest, profile,
+                      capability, limits
+stage_attempts:       attempt_id, build_id, run_id, stage, attempt_number,
+                      document_path, execution_status, quality_status,
+                      reason_code, detail, fingerprint, input_sha256,
+                      output_sha256, cache_hit, fallback_used, engine,
+                      engine_version, model, model_version, owner_ticket,
+                      coverage, reason_chain, started_at, finished_at,
+                      duration_ms
+```
+
+`stage_attempts` 是 append-only 的：重试插入新的 `attempt_id`，不会改写上一轮的行。`reason_chain` 保存降级链上每一步的可用性与跳过原因，`fallback_used` 区分“等价成功”和“降级成功”。
 
 ## document_blocks
 

@@ -21,3 +21,8 @@
 - `test_index_freshness.py`：六层新鲜度各自独立报告，以及 `index_status` 保持 V1 字段并附带 `freshness`。
 - `test_revision_chain.py`：端到端验收——删除重建派生索引后 Review Events、确认字典和逻辑文档身份仍在；同路径内容变化新增修订且历史 bundle 仍可校验。
 - `test_cli_durable_state.py`：`cli index` 的项目根推断与 `--project-root` 覆盖，以及发布后登记持久状态（含无法推断项目根时只保留派生索引）。
+
+分阶段处理与能力包的回归测试：
+
+- `test_processing_pipeline.py`：单个 stage 独立重试只新增 Stage Attempt、指纹变化只失效该 stage 及下游、必选能力缺失时明确降级而 Core 继续、相同指纹安全复用而不同指纹不复用、运行清单能回答运行时/引擎/降级链、缓存与索引目录保持分离。
+- `test_capability_runtime.py`：能力包状态到 stage 执行状态的唯一映射、硬件不足的显式报告、`ModelStore` 只从本地目录安装并校验 checksum、idle timeout / Low-memory Mode / 显式卸载 / 真实子进程退出都能释放驻留，以及 OCR 降级链的逐级记录。

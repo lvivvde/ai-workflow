@@ -8,7 +8,8 @@ import shutil
 import threading
 from typing import Iterable
 
-from .cli import build_index_atomically
+from .index_build import build_index_atomically
+from .pipeline import run_pipeline
 from .recording import record_build_revisions
 from .revisions import file_sha256
 
@@ -154,7 +155,9 @@ def apply_document_import(
                     shutil.move(source, target)
                 completed_actions.append((action, source, target))
 
-            index_report = build_index_atomically(project_root, index_directory)
+            run = run_pipeline(project_root, index_directory)
+            run.raise_for_blocking_failures()
+            index_report = run.projection_report
         except BaseException as error:
             rollback_errors = _rollback_import(completed_actions)
             if rollback_errors:
@@ -196,7 +199,9 @@ def rebuild_shared_index(
     if not _IMPORT_LOCK.acquire(blocking=False):
         raise RuntimeError("Another document import or index rebuild is already running")
     try:
-        index_report = build_index_atomically(project_root, index_directory)
+        run = run_pipeline(project_root, index_directory)
+        run.raise_for_blocking_failures()
+        index_report = run.projection_report
         revisions = record_build_revisions(
             project_root, index_directory, state_directory=state_directory
         )

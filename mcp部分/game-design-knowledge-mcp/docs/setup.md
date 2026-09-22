@@ -120,15 +120,19 @@ uv run game-design-knowledge index `
 - `documents_indexed` 为 6。
 - `images_indexed` 为 13。
 
-OCR统计取决于本机是否安装 Tesseract。未安装时，13 张图片应记录为 `ocr_unavailable`。
+首次建库（或删掉 `.index/knowledge` 之后重建）才会看到这两个数字；增量重建会把未变化的文档计成 `documents_reused`，不再重复统计图片，此时应查数据库里的 `images` 行数来确认图片仍是 13 张。
+
+OCR 统计取决于本机是否安装 RapidOCR / PaddleOCR / Tesseract。三者都没有时，13 张图片应记录为 `ocr_unavailable`，`index_status.processing` 里的 `ocr` attempt 会把这条降级链逐级列出来。
 
 重建成功后，把 `.index/knowledge/knowledge.sqlite` 和 `.index/knowledge/assets/` 与原始资料一起提交。数据库中的源文档路径使用相对索引目录的形式；另一台电脑的仓库绝对路径和 Git checkout 文件时间即使不同，只要 SHA256 内容一致，`index_status()` 也不会误报过期。
 
 索引命令写入同级不可变快照（`.index/.knowledge.build-*`），校验通过后才替换正式索引并更新 `CURRENT.json`。失败、中断或被其他进程占用时旧索引继续可读，未通过校验的快照不会成为 active。快照与 `CURRENT.json` 只属于本机，不提交。
 
+紧挨着还有 `.index/.knowledge.cache/`：内容寻址的 stage 缓存，只影响重算速度，可以随时删除；它不放在 `.index/knowledge/` 里面，所以正式索引的形状不变，首次构建失败也不会留下半个索引目录。
+
 重建还会把本次构建的来源、解析修订和检索单元登记到持久状态目录 `.design-state/`（默认路径；可用 `GAME_DESIGN_STATE_DIR` 覆盖）。该目录保存 Review Events、确认字典和逻辑文档身份，删除 `.index` 后重建不会丢失；它默认不进 Git，随机附仓库提交的人工真源仍是 `knowledge/catalog.json` 与 `docs/`。
 
-如果 `index_status()` 报告 `schema_version` 不是 3，或 `index_freshness` 把 `lexical_index` 报成 `incompatible`，说明索引是旧 schema，需要显式迁移：
+如果 `index_status()` 报告的 `schema_version` 低于本构建的目标版本（当前为 4），或 `index_freshness` 把 `lexical_index` 报成 `incompatible`，说明索引是旧 schema，需要显式迁移：
 
 ```powershell
 uv run game-design-knowledge migrate --plan --database .index\knowledge\knowledge.sqlite
@@ -337,7 +341,11 @@ uv sync --locked --verbose
 
 ### OCR 全部是 `unavailable`
 
-Tesseract 不在 `PATH` 中。这不影响图片提取、标题搜索和位置查询。
+本机既没有 RapidOCR/PaddleOCR，也没有 Tesseract（`ocr` stage 会逐级记录被跳过的原因和版本，见 `index_status.processing` 与 `docs/processing.md`）。这不影响图片提取、标题搜索和位置查询。
+
+### `index_status.processing` 显示某些 stage 是 `unavailable`
+
+这些 stage 的归属工单尚未交付，或本机缺少对应能力包。缺失的都是可选能力，索引照常可用；每个 absent stage 都带 `owner_ticket` 与 `reason_code`。若运行 `game-design-knowledge capabilities` 查看本机能力包与推荐 profile。
 
 ### `index_status()` 返回 `is_stale: true`
 
@@ -364,6 +372,7 @@ Tesseract 不在 `PATH` 中。这不影响图片提取、标题搜索和位置�
 *.sqlite-shm
 *.sqlite-wal
 .index/.knowledge.build-*/     # 不可变快照与恢复资料
+.index/.knowledge.cache/       # 内容寻址的 stage 缓存，可丢弃
 .index/knowledge/CURRENT.json  # 本机发布指针
 .index/knowledge/schema-backups/
 .design-state/                 # 归档字节与人工确认历史

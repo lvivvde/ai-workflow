@@ -6,9 +6,10 @@ import sqlite3
 import tempfile
 import unittest
 
-from game_design_knowledge.cli import build_index_atomically
+from game_design_knowledge.index_build import build_index_atomically
 from game_design_knowledge.indexer import SCHEMA_VERSION, index_documents
 from game_design_knowledge.migration import (
+    STEPS,
     MigrationError,
     SchemaVersionError,
     apply_migration,
@@ -99,7 +100,11 @@ class SchemaMigrationTests(unittest.TestCase):
                 tables,
             )
             self.assertEqual(after, before)
-            self.assertEqual([row[0] for row in recorded], [SCHEMA_VERSION])
+            self.assertEqual(
+                [row[0] for row in recorded],
+                [step.version_to for version, step in sorted(STEPS.items()) if version >= 2],
+                "a v2 index walks every declared step and records each one",
+            )
             self.assertEqual(read_schema_version(database_path), SCHEMA_VERSION)
 
             self.assertEqual(plan_migration(database_path)["status"], "up_to_date")

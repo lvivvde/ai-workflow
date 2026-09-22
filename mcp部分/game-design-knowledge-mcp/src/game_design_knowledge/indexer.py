@@ -9,9 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 import posixpath
 import re
-import shutil
 import sqlite3
-import subprocess
 from typing import Iterable
 import xml.etree.ElementTree as ET
 import zipfile
@@ -20,10 +18,13 @@ from . import revisions
 from .migration import (
     TARGET_SCHEMA_VERSION,
     SchemaVersionError,
+    ensure_processing_schema,
     ensure_revision_schema,
     refusal_message,
 )
-from .revisions import ProcessingManifest, ProcessingStage
+from .ocr import DEFAULT_CHAIN, TESSERACT_ENGINE, OcrEngine
+from .processing import configured_manifest as _configured_manifest
+from .revisions import ProcessingManifest
 from .state import state_directory_for
 
 
@@ -46,20 +47,10 @@ EXCLUDED_SOURCE_DIRECTORIES = frozenset(
         "node_modules",
     }
 )
-DEFAULT_PROCESSING_MANIFEST = ProcessingManifest(
-    stages=(
-        ProcessingStage(
-            name="source_parse",
-            ruleset_version="v1",
-            output_schema_version=str(SCHEMA_VERSION),
-            handler="game_design_knowledge.indexer",
-            handler_version="v1",
-        ),
-    ),
-    notes=(
-        "V1 extracts documents in one pass; V2-03 replaces this with the staged pipeline.",
-    ),
-)
+# The configured pipeline identity lives in the staged pipeline module; every
+# entry point that writes a parse revision has to agree with it, or a healthy
+# index reads as stale.
+DEFAULT_PROCESSING_MANIFEST = _configured_manifest()
 MAX_OOXML_MEMBERS = 10_000
 MAX_OOXML_MEMBER_SIZE = 128 * 1024 * 1024
 MAX_OOXML_TOTAL_SIZE = 512 * 1024 * 1024
@@ -71,6 +62,7 @@ def index_documents(
     output: Path,
     *,
     processing_manifest: ProcessingManifest | None = None,
+    ocr_engine: str | None = None,
     extra_excluded_directories: Iterable[str] | None = None,
 ) -> dict[str, int]:
     source = source.resolve()
@@ -80,6 +72,7 @@ def index_documents(
     manifest = processing_manifest or DEFAULT_PROCESSING_MANIFEST
     fingerprint = manifest.fingerprint
     excluded = excluded_directories(source, extra_excluded_directories)
+    engine = _ocr_engine(ocr_engine)
 
     documents_indexed = 0
     images_indexed = 0
@@ -184,7 +177,7 @@ def index_documents(
                 if not asset_path.exists():
                     asset_path.write_bytes(image_bytes)
                 mime_type = mimetypes.guess_type(media_name)[0] or "application/octet-stream"
-                ocr_status, ocr_text, ocr_error = _run_ocr(asset_path)
+                ocr_status, ocr_text, ocr_error = _run_ocr(asset_path, engine)
                 image_id = connection.execute(
                     """
                     INSERT INTO images(
@@ -332,7 +325,7 @@ def index_documents(
                 if not asset_path.exists():
                     asset_path.write_bytes(image_bytes)
                 mime_type = mimetypes.guess_type(media_name)[0] or "application/octet-stream"
-                ocr_status, ocr_text, ocr_error = _run_ocr(asset_path)
+                ocr_status, ocr_text, ocr_error = _run_ocr(asset_path, engine)
                 image_id = connection.execute(
                     """
                     INSERT INTO images(
@@ -533,10 +526,13 @@ def _create_schema(connection: sqlite3.Connection) -> None:
             indexed_at TEXT NOT NULL
         );
 
-        PRAGMA user_version = 3;
         """
     )
+    # The schema version is written explicitly rather than inside the script so
+    # that the target version has exactly one author: migration.py.
+    connection.execute(f"PRAGMA user_version = {TARGET_SCHEMA_VERSION}")
     ensure_revision_schema(connection)
+    ensure_processing_schema(connection)
 
 
 def _index_catalog(
@@ -1171,29 +1167,21 @@ def _rels_part(part: str) -> str:
     return (path.parent / "_rels" / f"{path.name}.rels").as_posix()
 
 
-def _run_ocr(asset_path: Path) -> tuple[str, str, str | None]:
-    executable = shutil.which("tesseract")
-    if executable is None:
-        return "unavailable", "", "Tesseract executable was not found on PATH"
+def _ocr_engine(name: str | None) -> OcrEngine:
+    """Resolve the engine the pipeline selected; V1 behaviour when unset."""
 
-    language = os.environ.get("GAME_DESIGN_OCR_LANG", "chi_sim+eng")
-    try:
-        completed = subprocess.run(
-            [executable, str(asset_path), "stdout", "-l", language],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=60,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired) as error:
-        return "failed", "", str(error)
+    if not name:
+        return TESSERACT_ENGINE
+    for engine in DEFAULT_CHAIN:
+        if engine.name == name:
+            return engine
+    raise ValueError(f"unknown OCR engine: {name}")
 
-    if completed.returncode != 0:
-        error = completed.stderr.strip() or f"Tesseract exited with {completed.returncode}"
-        return "failed", "", error
-    return "succeeded", completed.stdout.strip(), None
+
+def _run_ocr(
+    asset_path: Path, engine: OcrEngine = TESSERACT_ENGINE
+) -> tuple[str, str, str | None]:
+    return engine.transcribe(Path(asset_path))
 
 
 def _read_shared_strings(archive: zipfile.ZipFile) -> list[str]:

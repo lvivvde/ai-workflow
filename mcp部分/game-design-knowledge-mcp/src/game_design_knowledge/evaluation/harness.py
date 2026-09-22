@@ -22,7 +22,7 @@ import time
 import tracemalloc
 from typing import Any, Callable, Mapping, Sequence
 
-from ..cli import build_index_atomically
+from ..index_build import build_index_atomically
 from ..shared_index import SharedIndexRead
 from .claims import (
     FOUND_FAMILY,

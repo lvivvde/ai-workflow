@@ -9,6 +9,8 @@ import shutil
 
 from mcp import ClientSession, StdioServerParameters, stdio_client
 
+from game_design_knowledge.indexer import SCHEMA_VERSION
+
 
 async def _run(index_directory: Path) -> dict[str, object]:
     executable = shutil.which("game-design-knowledge-mcp")
@@ -32,7 +34,7 @@ async def _run(index_directory: Path) -> dict[str, object]:
         if not content or "text" not in content[0]:
             raise RuntimeError(f"index_status returned no structured content: {payload}")
         structured = json.loads(content[0]["text"])
-    expected_schema_version = 3
+    expected_schema_version = SCHEMA_VERSION
     if structured.get("schema_version") != expected_schema_version:
         raise RuntimeError(
             "Unexpected schema version "

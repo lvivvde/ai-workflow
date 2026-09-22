@@ -21,8 +21,9 @@ from typing import Any, Callable
 from .snapshots import verify_snapshot
 
 
-TARGET_SCHEMA_VERSION = 3
+TARGET_SCHEMA_VERSION = 4
 LEGACY_SCHEMA_VERSIONS = frozenset({1})
+REVISION_SCHEMA_VERSION = 3
 
 DOCUMENT_REVISION_COLUMNS: dict[str, str] = {
     "logical_document_id": "TEXT",
@@ -75,6 +76,51 @@ REVISION_TABLE_STATEMENTS: tuple[str, ...] = (
     """,
 )
 
+PROCESSING_TABLE_STATEMENTS: tuple[str, ...] = (
+    """
+    CREATE TABLE IF NOT EXISTS processing_manifests (
+        build_id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        configured_fingerprint TEXT NOT NULL,
+        configured_manifest TEXT NOT NULL DEFAULT '{}',
+        run_manifest TEXT NOT NULL DEFAULT '{}',
+        profile TEXT NOT NULL DEFAULT '',
+        capability TEXT NOT NULL DEFAULT '{}',
+        limits TEXT NOT NULL DEFAULT '{}'
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS stage_attempts (
+        attempt_id TEXT PRIMARY KEY,
+        build_id TEXT NOT NULL DEFAULT '',
+        run_id TEXT NOT NULL DEFAULT '',
+        stage TEXT NOT NULL,
+        attempt_number INTEGER NOT NULL DEFAULT 1,
+        document_path TEXT NOT NULL DEFAULT '',
+        execution_status TEXT NOT NULL,
+        quality_status TEXT NOT NULL,
+        reason_code TEXT NOT NULL DEFAULT '',
+        detail TEXT NOT NULL DEFAULT '',
+        fingerprint TEXT NOT NULL DEFAULT '',
+        input_sha256 TEXT NOT NULL DEFAULT '',
+        output_sha256 TEXT NOT NULL DEFAULT '',
+        cache_hit INTEGER NOT NULL DEFAULT 0,
+        fallback_used INTEGER NOT NULL DEFAULT 0,
+        engine TEXT NOT NULL DEFAULT '',
+        engine_version TEXT NOT NULL DEFAULT '',
+        model TEXT NOT NULL DEFAULT '',
+        model_version TEXT NOT NULL DEFAULT '',
+        owner_ticket TEXT NOT NULL DEFAULT '',
+        coverage TEXT NOT NULL DEFAULT '{}',
+        reason_chain TEXT NOT NULL DEFAULT '[]',
+        started_at TEXT NOT NULL DEFAULT '',
+        finished_at TEXT NOT NULL DEFAULT '',
+        duration_ms INTEGER NOT NULL DEFAULT 0
+    )
+    """,
+)
+
 
 class SchemaVersionError(RuntimeError):
     """Raised when a database's schema version cannot be read safely."""
@@ -103,13 +149,21 @@ class MigrationStep:
 STEPS: dict[int, MigrationStep] = {
     2: MigrationStep(
         version_from=2,
-        version_to=TARGET_SCHEMA_VERSION,
+        version_to=REVISION_SCHEMA_VERSION,
         description=(
             "Add the revision chain tables (schema_migrations, index_builds, "
             "source_revisions, parse_revisions) and the logical document "
             "columns on documents"
         ),
-    )
+    ),
+    3: MigrationStep(
+        version_from=3,
+        version_to=TARGET_SCHEMA_VERSION,
+        description=(
+            "Add the processing tables (processing_manifests, stage_attempts) "
+            "that record which stages, engines, and fallbacks produced a build"
+        ),
+    ),
 }
 
 
@@ -154,19 +208,7 @@ def refusal_message(version: int) -> str:
 def ensure_revision_schema(connection: sqlite3.Connection) -> list[str]:
     """Create the revision-chain tables and columns if they are not there yet."""
 
-    applied: list[str] = []
-    existing = {
-        row[0]
-        for row in connection.execute(
-            "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')"
-        )
-    }
-    for statement in REVISION_TABLE_STATEMENTS:
-        name = _created_name(statement)
-        connection.execute(statement)
-        if name not in existing:
-            applied.append(f"table {name}")
-
+    applied = _ensure_tables(connection, REVISION_TABLE_STATEMENTS)
     columns = {
         row[1] for row in connection.execute("PRAGMA table_info(documents)")
     }
@@ -175,6 +217,30 @@ def ensure_revision_schema(connection: sqlite3.Connection) -> list[str]:
             continue
         connection.execute(f"ALTER TABLE documents ADD COLUMN {column} {column_type}")
         applied.append(f"column documents.{column}")
+    return applied
+
+
+def ensure_processing_schema(connection: sqlite3.Connection) -> list[str]:
+    """Create the processing tables that carry a run's stage history."""
+
+    return _ensure_tables(connection, PROCESSING_TABLE_STATEMENTS)
+
+
+def _ensure_tables(
+    connection: sqlite3.Connection, statements: tuple[str, ...]
+) -> list[str]:
+    applied: list[str] = []
+    existing = {
+        row[0]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')"
+        )
+    }
+    for statement in statements:
+        name = _created_name(statement)
+        connection.execute(statement)
+        if name not in existing:
+            applied.append(f"table {name}")
     return applied
 
 
@@ -329,8 +395,10 @@ def rollback_migration(database_path: Path, backup_path: Path) -> dict[str, Any]
 
 
 def _run_step(step: MigrationStep, connection: sqlite3.Connection) -> list[str]:
-    if step.version_to == TARGET_SCHEMA_VERSION:
+    if step.version_to == REVISION_SCHEMA_VERSION:
         return ensure_revision_schema(connection)
+    if step.version_to == TARGET_SCHEMA_VERSION:
+        return ensure_processing_schema(connection)
     raise MigrationError(f"No migration is defined onto version {step.version_to}")
 
 
@@ -369,11 +437,14 @@ __all__ = [
     "LEGACY_SCHEMA_VERSIONS",
     "MigrationError",
     "MigrationStep",
+    "PROCESSING_TABLE_STATEMENTS",
+    "REVISION_SCHEMA_VERSION",
     "REVISION_TABLE_STATEMENTS",
     "STEPS",
     "SchemaVersionError",
     "TARGET_SCHEMA_VERSION",
     "apply_migration",
+    "ensure_processing_schema",
     "ensure_revision_schema",
     "plan_migration",
     "read_schema_version",

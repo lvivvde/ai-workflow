@@ -8,7 +8,7 @@ import tempfile
 from time import perf_counter
 import zipfile
 
-from game_design_knowledge.cli import build_index_atomically
+from game_design_knowledge.index_build import build_index_atomically
 from game_design_knowledge.server import search_evidence
 
 

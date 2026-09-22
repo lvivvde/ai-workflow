@@ -40,6 +40,11 @@ from .notation import (
     scope_covers,
     scope_key,
 )
+from .query_rewrite import (
+    REWRITER_NOT_CONFIGURED,
+    generated_variants,
+    not_configured_report,
+)
 
 
 RETRIEVAL_VERSION = "retrieval-v1"
@@ -51,11 +56,12 @@ RETRIEVAL_MODES: tuple[str, ...] = ("lexical", "auto", "hybrid", "semantic")
 DEFAULT_MODE = "auto"
 VECTOR_MODES: tuple[str, ...] = ("hybrid", "semantic")
 
+SEMANTIC_CANDIDATE = "semantic_candidate"
 MATCH_TYPES: tuple[str, ...] = (
     "exact",
     "confirmed_alias",
     "lexical",
-    "semantic_candidate",
+    SEMANTIC_CANDIDATE,
 )
 #: Deterministic priority. It orders candidates; it never ranks evidence.
 MATCH_PRIORITY: Mapping[str, int] = {
@@ -82,6 +88,7 @@ EXACT_CHANNEL = "exact"
 ALIAS_CHANNEL = "confirmed_alias"
 LEXICAL_CHANNEL = "lexical"
 STRUCTURE_CHANNEL = "structures"
+GENERATED_CHANNEL = "generated_variant"
 CONFLICT_CHANNEL = "conflict_scan"
 CANDIDATE_CHANNEL = "unconfirmed"
 SEMANTIC_CHANNEL = "semantic"
@@ -91,11 +98,21 @@ CHANNELS: tuple[str, ...] = (
     ALIAS_CHANNEL,
     STRUCTURE_CHANNEL,
     CANDIDATE_CHANNEL,
+    # Local rewriting runs in parallel with the original query, so it is
+    # reported right after the deterministic channels.
+    GENERATED_CHANNEL,
     SEMANTIC_CHANNEL,
     # The scan runs last, over the units the other channels found, so it is
     # reported last as well.
     CONFLICT_CHANNEL,
 )
+
+#: The vector channel is declared by the contract and served only when a local
+#: provider is switched on; these are the states its report can be in.
+VECTOR_NOT_REQUESTED = "vector_not_requested"
+VECTOR_NOT_CONFIGURED = "vector_capability_not_configured"
+VECTOR_DETERMINISTIC_SUFFICIENT = "deterministic_channels_sufficient"
+VECTOR_CAPABILITY_FAILED = "semantic_capability_failed"
 
 CHANNEL_MATCHED = "matched"
 CHANNEL_NO_MATCH = "no_match"
@@ -189,6 +206,31 @@ DEGRADATION_BOUNDARY = (
     "A channel this build cannot run is reported as missing, with the mode that "
     "actually ran, so a caller can tell a degraded answer from a complete one."
 )
+SEMANTIC_BOUNDARY = (
+    "The vector channel discovers candidates; it never answers. A vector record "
+    "carries a unit id, a content hash and a vector bound to one model identity, "
+    "and the text a hit is judged against is read back from the current facts."
+)
+WEAK_SEMANTIC_BOUNDARY = (
+    "Similarity below the model's threshold is reported as possibly related, "
+    "never as a query answer; when nothing clears the threshold the response "
+    "stays not_found."
+)
+QUERY_VARIANT_BOUNDARY = (
+    "A generated query variant may reword a question; it may not move a value, a "
+    "unit, a version, a time, a scope word or a negation, and it never updates "
+    "the Designer Notation Dictionary."
+)
+SEMANTIC_MODE_BOUNDARY = (
+    "An explicitly semantic request runs the vector channel for discovery and "
+    "diagnosis: the deterministic channels are reported as skipped, and every "
+    "hit is still read back from the current index before it is returned."
+)
+VECTOR_LIFECYCLE_BOUNDARY = (
+    "The vector index is a disposable sidecar of derived data: it holds unit "
+    "ids, content hashes and vectors, and deleting it leaves the facts, FTS5 "
+    "and every core tool working."
+)
 
 #: Fields a conflict dimension can differ in; a group has to name at least one.
 #: Scope is not among the reported dimensions: it is the identity of the claim
@@ -213,6 +255,9 @@ def retrieve(
     document: str = "",
     notation: Mapping[str, Any] | None = None,
     degradations: Sequence[Mapping[str, Any]] = (),
+    semantic: Any = None,
+    rewriter: Any = None,
+    rewrite_report: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Answer one query with hydrated candidates, channels and conflicts.
 
@@ -221,6 +266,17 @@ def retrieve(
     ``degradations`` carries the capabilities the caller could not supply (an
     unreadable notation dictionary, for instance), so a degraded answer says so
     instead of looking complete.
+
+    ``semantic`` is the optional vector channel -- anything with
+    ``availability(facts)`` and ``search(facts, query=..., limit=...)``, which
+    is what :class:`~game_design_knowledge.semantic_index.SemanticChannel`
+    provides. ``rewriter`` is the optional local query rewriter. Both are
+    absent by default, and the deterministic answer is byte-for-byte the one
+    this function gave before either existed.
+
+    ``rewrite_report`` carries what the caller already knows about its
+    rewriter, so a rewriter that could not be loaded is reported as missing
+    instead of looking like one that was never configured.
     """
 
     text = str(query or "").strip()
@@ -252,24 +308,58 @@ def retrieve(
 
     variants = plan["variants"]
     expansions = plan["expansions"]
+
+    generated_variant_reports: list[dict[str, Any]] = []
+    generated_query_variants: list[str] = []
+    if rewriter is None:
+        report = dict(rewrite_report) if rewrite_report else not_configured_report()
+    else:
+        (
+            generated_query_variants,
+            generated_variant_reports,
+            report,
+        ) = generated_variants(rewriter, text)
+    generated = [
+        {
+            "text": variant,
+            "match_type": "lexical",
+            "channel": GENERATED_CHANNEL,
+            "reason": f"本地改写变体「{variant}」",
+            "rule": None,
+        }
+        for variant in generated_query_variants
+    ]
     original = [variant for variant in variants if variant["channel"] == LEXICAL_CHANNEL]
     aliases = [variant for variant in variants if variant["channel"] == ALIAS_CHANNEL]
     # An ``evidence_type`` names a source-fact type, so asking for one drops the
     # units that are not statements at all instead of silently ignoring it.
     units_only = bool(str(evidence_type or "").strip())
+    capability = _semantic_capability(semantic, index)
+    # A semantic request is a discovery and diagnosis request: the vector
+    # channel runs on its own and the deterministic channels say they were
+    # skipped. When no vector capability is configured there is nothing to
+    # discover with, so that request degrades into the deterministic answer.
+    discovery_only = mode == "semantic" and bool(
+        capability and capability["available"]
+    )
+    kind = _kind(mode, capability)
 
-    exact = _collect(
-        _sources(
-            index,
-            document_type=document_type,
-            evidence_type=evidence_type,
-            include_images=not units_only,
-            include_regions=not units_only,
+    exact = (
+        {"hits": [], "status": CHANNEL_SKIPPED, "reason": "semantic_mode_only"}
+        if discovery_only
+        else _collect(
+            _sources(
+                index,
+                document_type=document_type,
+                evidence_type=evidence_type,
+                include_images=not units_only,
+                include_regions=not units_only,
+                limit=size,
+            ),
+            original,
             limit=size,
-        ),
-        original,
-        limit=size,
-        exact=True,
+            exact=True,
+        )
     )
     hits.extend(exact["hits"])
     reports.append(
@@ -280,18 +370,22 @@ def retrieve(
         )
     )
 
-    lexical = _collect(
-        _sources(
-            index,
-            document_type=document_type,
-            evidence_type=evidence_type,
-            include_images=not units_only,
-            include_regions=not units_only,
+    lexical = (
+        {"hits": [], "status": CHANNEL_SKIPPED, "reason": "semantic_mode_only"}
+        if discovery_only
+        else _collect(
+            _sources(
+                index,
+                document_type=document_type,
+                evidence_type=evidence_type,
+                include_images=not units_only,
+                include_regions=not units_only,
+                limit=size,
+            ),
+            original,
             limit=size,
-        ),
-        original,
-        limit=size,
-        exact=False,
+            exact=False,
+        )
     )
     hits.extend(lexical["hits"])
     reports.append(
@@ -302,18 +396,22 @@ def retrieve(
         )
     )
 
-    alias = _collect(
-        _sources(
-            index,
-            document_type=document_type,
-            evidence_type=evidence_type,
-            include_images=not units_only,
-            include_regions=not units_only,
+    alias = (
+        {"hits": [], "status": CHANNEL_SKIPPED, "reason": "semantic_mode_only"}
+        if discovery_only
+        else _collect(
+            _sources(
+                index,
+                document_type=document_type,
+                evidence_type=evidence_type,
+                include_images=not units_only,
+                include_regions=not units_only,
+                limit=size,
+            ),
+            aliases,
             limit=size,
-        ),
-        aliases,
-        limit=size,
-        exact=False,
+            exact=False,
+        )
     )
     reports.append(
         _channel_report(
@@ -325,7 +423,16 @@ def retrieve(
     )
     hits.extend(alias["hits"])
 
-    structures = _structures(index, variants, document_type=document_type, limit=size)
+    structures = (
+        {"hits": [], "status": CHANNEL_SKIPPED, "reason": "semantic_mode_only"}
+        if discovery_only
+        else _structures(
+            index,
+            [*variants, *generated],
+            document_type=document_type,
+            limit=size,
+        )
+    )
     hits.extend(structures["hits"])
     reports.append(
         _channel_report(
@@ -356,7 +463,60 @@ def retrieve(
             }
         )
 
-    reports.append(_semantic_report(mode))
+    if generated:
+        collected = _collect(
+            _sources(
+                index,
+                document_type=document_type,
+                evidence_type=evidence_type,
+                include_images=not units_only,
+                include_regions=not units_only,
+                limit=size,
+            ),
+            generated,
+            limit=size,
+            exact=False,
+        )
+        hits.extend(collected["hits"])
+        reports.append(
+            _channel_report(
+                GENERATED_CHANNEL,
+                collected,
+                detail=QUERY_VARIANT_BOUNDARY,
+                expansions=len(generated),
+            )
+        )
+    else:
+        reports.append(_generated_report(report))
+
+    deterministic_facts = any(
+        str(hit["namespace"]) in FACT_NAMESPACES for hit in hits
+    )
+    run_semantic = bool(capability and capability["available"]) and (
+        mode in VECTOR_MODES or (mode == "auto" and not deterministic_facts)
+    )
+    semantic_result = (
+        _semantic_hits(
+            semantic,
+            index,
+            query=text,
+            limit=size,
+            document_type=document_type,
+            evidence_type=evidence_type,
+        )
+        if run_semantic
+        else None
+    )
+    semantic_report = _semantic_report(
+        mode, capability, semantic_result, ran=run_semantic
+    )
+    reports.append(semantic_report)
+    weak_hits: list[dict[str, Any]] = []
+    if semantic_result is not None:
+        hits.extend(semantic_result["hits"])
+        # Below-threshold hits are still fused, so the same unit keeps one
+        # record with every reason it was found for.
+        weak_hits.extend(_fuse(semantic_result["weak"]))
 
     fused_hits: list[dict[str, Any]] = []
     held_back = 0
@@ -374,6 +534,8 @@ def retrieve(
     )
     if assist["status"] == CHANNEL_UNAVAILABLE:
         limitation_notes.append(assist["detail"])
+
+    possible_related, weak_dropped = _possible_related(index, weak_hits, limit=size)
 
     scanned, scan = _conflict_scan(
         index,
@@ -394,13 +556,12 @@ def retrieve(
     namespaces = _namespace_report(fused, untraceable, reports)
     groups, potentials = _conflicts([*fused, *scanned])
     facts = [candidate for candidate in fused if candidate["namespace"] in FACT_NAMESPACES]
-    kind = _kind(mode)
     kind["degradation_events"] = [
-        *kind["degradation_events"],
         *(
             _capability_event(mode, event, kind["effective"])
             for event in degradations
         ),
+        *kind["degradation_events"],
     ]
     state = _state(
         facts=facts,
@@ -418,6 +579,24 @@ def retrieve(
         limitation_notes.append(
             f"{held_back} 个未确认候选被挡在事实答案之外："
             "默认事实查询不使用它们作答，探索模式可以显式查看。"
+        )
+    if possible_related:
+        limitation_notes.append(
+            f"{len(possible_related)} 条向量命中低于相似度门槛，只作为"
+            "「可能相关内容」列出，不计入事实答案。"
+        )
+    if weak_dropped:
+        limitation_notes.append(
+            f"{weak_dropped} 条低位向量命中无法回读当前证据，已丢弃。"
+        )
+    if discovery_only:
+        limitation_notes.append(SEMANTIC_MODE_BOUNDARY)
+    if str(report["status"]) in {"failed", "unavailable"}:
+        limitation_notes.append(str(report["detail"]))
+    if generated_variant_reports:
+        limitation_notes.append(
+            f"{len(generated_variant_reports)} 个本地改写变体未通过质量门槛，"
+            "本次只用通过门槛的变体。"
         )
     for event in degradations:
         limitation_notes.append(
@@ -441,6 +620,7 @@ def retrieve(
         "channels": reports,
         "candidates": fused,
         "evidence": evidence,
+        "possible_related": possible_related,
         "untraceable": untraceable,
         "conflicts": potentials,
         "conflict_groups": groups,
@@ -451,6 +631,8 @@ def retrieve(
             "document_type": document_type or None,
             "evidence_type": evidence_type or None,
             "exploration": bool(include_candidates),
+            "semantic": _semantic_payload(capability, semantic_result),
+            "query_variants": _variants_payload(report, generated),
             "held_back_unconfirmed": held_back,
             "unavailable_capabilities": [
                 str(event.get("channel")) for event in degradations
@@ -467,11 +649,26 @@ def retrieve(
             "channels": {report["channel"]: report["status"] for report in reports},
             "vector": kind["vector"],
             "degradation_events": kind["degradation_events"],
-            "rebuild_vector_index_recommended": any(
-                str(event.get("channel")) == SEMANTIC_CHANNEL
-                for event in kind["degradation_events"]
+            "rebuild_vector_index_recommended": bool(
+                any(
+                    str(event.get("channel")) == SEMANTIC_CHANNEL
+                    for event in kind["degradation_events"]
+                )
+                or (capability or {}).get("rebuild_recommended")
+                or (
+                    mode in VECTOR_MODES
+                    and semantic_report["status"]
+                    in {CHANNEL_UNAVAILABLE, CHANNEL_NOT_CONFIGURED, CHANNEL_FAILED}
+                )
             ),
             "expansions": len(expansions),
+            "semantic": _semantic_payload(capability, semantic_result),
+            "query_rewrite": {
+                **_variants_payload(report, generated),
+                "namespace": GENERATED_CHANNEL,
+                "updates_notation_dictionary": False,
+                "boundary": QUERY_VARIANT_BOUNDARY,
+            },
             "explanation_assist": {
                 "status": assist["status"],
                 "examined": assist["examined"],
@@ -1185,23 +1382,280 @@ def _unconfirmed(
     return {"hits": hits, "status": CHANNEL_MATCHED, "reached": ["unconfirmed_candidates"]}
 
 
-def _semantic_report(mode: str) -> dict[str, Any]:
-    """The vector channel: declared by the contract, not served by this build."""
+def _semantic_capability(semantic: Any, index: Any) -> dict[str, Any] | None:
+    """Ask the optional vector channel what it can do, without trusting it.
 
-    if mode == "lexical" or mode == "auto":
+    A channel that cannot answer at all is reported as such; it never becomes
+    an exception that would take the deterministic answer down with it.
+    """
+
+    if semantic is None:
+        return None
+    try:
+        return dict(semantic.availability(index) or {})
+    except Exception as error:  # noqa: BLE001 - a local model may fail to load
+        return {
+            "available": False,
+            "status": CHANNEL_UNAVAILABLE,
+            "reason": VECTOR_CAPABILITY_FAILED,
+            "detail": f"本地向量能力不可用：{error}",
+            "identity": {},
+            "index_version": None,
+            "vectors": 0,
+            "threshold": None,
+            "namespaces": [],
+            "stale_vectors": 0,
+            "image_embedding": False,
+        }
+
+
+def _semantic_hits(
+    semantic: Any,
+    index: Any,
+    *,
+    query: str,
+    limit: int,
+    document_type: str | None,
+    evidence_type: str | None,
+) -> dict[str, Any]:
+    """Vector recall, split into hits that clear the threshold and ones that do not."""
+
+    try:
+        result = dict(
+            semantic.search(
+                index,
+                query=query,
+                limit=limit,
+                document_type=document_type,
+                evidence_type=evidence_type,
+            )
+            or {}
+        )
+    except Exception as error:  # noqa: BLE001 - a local model may fail at query time
+        return {
+            "status": CHANNEL_FAILED,
+            "reason": VECTOR_CAPABILITY_FAILED,
+            "detail": f"向量召回失败：{error}",
+            "hits": [],
+            "weak": [],
+            "scanned": 0,
+            "threshold": None,
+        }
+    raw_threshold = result.get("threshold")
+    threshold = float(raw_threshold) if raw_threshold is not None else 0.0
+    hits: list[dict[str, Any]] = []
+    weak: list[dict[str, Any]] = []
+    for rank, hit in enumerate(result.get("hits") or (), start=1):
+        candidate = _semantic_hit(hit, rank=rank, query=query)
+        similarity = float(candidate.get("similarity") or 0.0)
+        (hits if similarity >= threshold else weak).append(candidate)
+    return {
+        "status": str(result.get("status") or CHANNEL_NO_MATCH),
+        "reason": str(result.get("reason") or ""),
+        "detail": str(result.get("detail") or ""),
+        "hits": hits,
+        "weak": weak,
+        "scanned": int(result.get("scanned") or 0),
+        "threshold": threshold,
+    }
+
+
+def _semantic_hit(hit: Mapping[str, Any], *, rank: int, query: str) -> dict[str, Any]:
+    """One vector hit as a candidate that still has to be read back.
+
+    ``text`` is empty on purpose: the sidecar keeps no text to quote, so the
+    sentence a caller sees is always the one hydration reads from the facts.
+    """
+
+    similarity = float(hit.get("score") or 0.0)
+    unit_id = str(hit.get("unit_id") or "")
+    variant = {
+        "text": query,
+        "match_type": SEMANTIC_CANDIDATE,
+        "channel": SEMANTIC_CHANNEL,
+        "reason": f"本地向量召回（相似度 {similarity:.3f}）",
+        "rule": None,
+    }
+    return _hit(
+        variant,
+        rank=rank,
+        unit_id=unit_id,
+        namespace=str(hit.get("namespace") or SOURCE_FACTS),
+        unit_type=str(hit.get("unit_type") or ""),
+        text="",
+        evidence_status=EVIDENCE_STATUS_EXPLICIT,
+        source_document=str(hit.get("source_document") or ""),
+        document_type=str(hit.get("document_type") or ""),
+        record_id=_evidence_id(unit_id) or 0,
+        score=-similarity,
+        recorded_sha256=str(hit.get("source_sha256") or ""),
+        extra={"similarity": similarity},
+    )
+
+
+def _possible_related(
+    index: Any, weak_hits: Sequence[Mapping[str, Any]], *, limit: int
+) -> tuple[list[dict[str, Any]], int]:
+    """Below-threshold vector hits: shown, read back, and never an answer."""
+
+    if not weak_hits:
+        return [], 0
+    resolved, untraceable = _hydrate(index, list(weak_hits)[:limit])
+    items: list[dict[str, Any]] = []
+    for candidate in resolved:
+        item = _evidence_shape(candidate)
+        item["supports_project_fact"] = False
+        item["similarity"] = float(candidate.get("similarity") or 0.0)
+        item["boundary"] = WEAK_SEMANTIC_BOUNDARY
+        items.append(item)
+    return items, len(untraceable) + max(0, len(weak_hits) - limit)
+
+
+def _semantic_report(
+    mode: str,
+    capability: Mapping[str, Any] | None,
+    result: Mapping[str, Any] | None,
+    *,
+    ran: bool,
+) -> dict[str, Any]:
+    """What the vector channel did, or why it could not do anything."""
+
+    if mode == "lexical":
         return {
             "channel": SEMANTIC_CHANNEL,
             "status": CHANNEL_NOT_CONFIGURED,
             "hits": 0,
-            "detail": "本构建不提供向量召回：auto 只跑确定性通道，因此没有降级。",
-            "reason": "vector_capability_not_configured",
+            "detail": "词法模式只跑确定性通道。",
+            "reason": VECTOR_NOT_REQUESTED,
+        }
+    if capability is None:
+        return {
+            "channel": SEMANTIC_CHANNEL,
+            "status": CHANNEL_NOT_CONFIGURED,
+            "hits": 0,
+            "detail": (
+                "向量能力未启用：auto 只跑确定性通道，因此没有降级。"
+                if mode == "auto"
+                else "请求了向量召回，本构建没有配置本地 embedding 与向量索引，"
+                "已降级为确定性通道。"
+            ),
+            "reason": VECTOR_NOT_CONFIGURED,
+        }
+    if not capability.get("available"):
+        # An explicitly requested mode that cannot run is a degradation; auto
+        # never demanded the capability, so it only reports why it skipped it.
+        status = (
+            CHANNEL_UNAVAILABLE if mode in VECTOR_MODES else CHANNEL_NOT_CONFIGURED
+        )
+        return {
+            "channel": SEMANTIC_CHANNEL,
+            "status": status,
+            "hits": 0,
+            "detail": str(capability.get("detail") or ""),
+            "reason": str(capability.get("reason") or VECTOR_NOT_CONFIGURED),
+        }
+    if not ran:
+        return {
+            "channel": SEMANTIC_CHANNEL,
+            "status": CHANNEL_SKIPPED,
+            "hits": 0,
+            "detail": "确定性通道已经找到事实候选，auto 模式不再请求向量。",
+            "reason": VECTOR_DETERMINISTIC_SUFFICIENT,
+        }
+    outcome = str((result or {}).get("status") or CHANNEL_NO_MATCH)
+    if outcome in {"missing", "stale", "incompatible", "unavailable", CHANNEL_FAILED}:
+        return {
+            "channel": SEMANTIC_CHANNEL,
+            "status": CHANNEL_UNAVAILABLE,
+            "hits": 0,
+            "detail": str((result or {}).get("detail") or ""),
+            "reason": str((result or {}).get("reason") or VECTOR_NOT_CONFIGURED),
+        }
+    strong = list((result or {}).get("hits") or ())
+    weak = list((result or {}).get("weak") or ())
+    report: dict[str, Any] = {
+        "channel": SEMANTIC_CHANNEL,
+        "status": CHANNEL_MATCHED if strong else CHANNEL_NO_MATCH,
+        "hits": len(strong),
+        "detail": str((result or {}).get("detail") or ""),
+        "scanned": int((result or {}).get("scanned") or 0),
+    }
+    if weak:
+        report["weak"] = len(weak)
+    threshold = (result or {}).get("threshold")
+    if threshold is not None:
+        report["threshold"] = float(threshold)
+    return report
+
+
+def _generated_report(report: Mapping[str, Any]) -> dict[str, Any]:
+    """The rewriting channel when no variant was searched with."""
+
+    status = str(report.get("status") or "")
+    if status in {"failed", "unavailable"}:
+        return {
+            "channel": GENERATED_CHANNEL,
+            "status": CHANNEL_FAILED,
+            "hits": 0,
+            "detail": str(report.get("detail") or ""),
+            "reason": str(report.get("reason") or REWRITER_FAILED),
+        }
+    if status in {"refused", "no_variants"}:
+        return {
+            "channel": GENERATED_CHANNEL,
+            "status": CHANNEL_SKIPPED,
+            "hits": 0,
+            "detail": str(report.get("detail") or QUERY_VARIANT_BOUNDARY),
+            "reason": "no_qualified_variant",
         }
     return {
-        "channel": SEMANTIC_CHANNEL,
+        "channel": GENERATED_CHANNEL,
         "status": CHANNEL_NOT_CONFIGURED,
         "hits": 0,
-        "detail": "请求了向量召回，本构建没有 embedding 模型与向量索引，已降级为确定性通道。",
-        "reason": "vector_capability_not_configured",
+        "detail": str(report.get("detail") or ""),
+        "reason": str(report.get("reason") or REWRITER_NOT_CONFIGURED),
+    }
+
+
+def _variants_payload(
+    report: Mapping[str, Any], generated: Sequence[Mapping[str, Any]]
+) -> dict[str, Any]:
+    return {
+        "status": report.get("status"),
+        "reason": report.get("reason") or "",
+        "detail": report.get("detail") or "",
+        "name": report.get("name") or "",
+        "version": report.get("version") or "",
+        "applied": len(generated),
+        "accepted": int(report.get("accepted") or 0),
+        "rejected": list(report.get("rejected") or []),
+        "boundary": QUERY_VARIANT_BOUNDARY,
+    }
+
+
+def _semantic_payload(
+    capability: Mapping[str, Any] | None, result: Mapping[str, Any] | None
+) -> dict[str, Any] | None:
+    """What the vector sidecar is, whether it ran, and how far it got."""
+
+    if capability is None:
+        return None
+    return {
+        "available": bool(capability.get("available")),
+        "status": capability.get("status"),
+        "reason": capability.get("reason") or "",
+        "detail": capability.get("detail") or "",
+        "model": dict(capability.get("identity") or {}) or None,
+        "index_version": capability.get("index_version"),
+        "vectors": capability.get("vectors"),
+        "stale_vectors": capability.get("stale_vectors"),
+        "threshold": capability.get("threshold"),
+        "namespaces": list(capability.get("namespaces") or []),
+        "image_embedding": bool(capability.get("image_embedding")),
+        "queried": result is not None,
+        "scanned": int((result or {}).get("scanned") or 0),
+        "weak": len((result or {}).get("weak") or ()),
+        "boundary": SEMANTIC_BOUNDARY,
     }
 
 
@@ -1304,6 +1758,10 @@ def _fuse(hits: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
             entry["rule"] = dict(hit["rule"])
         if hit.get("relation"):
             entry["relation"] = dict(hit["relation"])
+        if hit.get("similarity") is not None:
+            # Channel-local evidence: a cosine similarity is reported as a
+            # similarity, never summed into a score another channel produced.
+            entry["similarity"] = float(hit["similarity"])
         key = (entry["channel"], entry["match_type"], entry["reason"])
         if any(
             existing["channel"] == key[0]
@@ -2069,35 +2527,77 @@ def _state(
     return "found"
 
 
-def _kind(mode: str) -> dict[str, Any]:
+def _kind(
+    mode: str, capability: Mapping[str, Any] | None = None
+) -> dict[str, Any]:
     """What ran, what was asked for, and what that means for the caller."""
 
+    available = bool(capability and capability.get("available"))
     if mode == "lexical":
-        return {"effective": "lexical", "vector": _vector_detail("not_requested"), "degradation_events": []}
+        return {
+            "effective": "lexical",
+            "vector": _vector_detail("not_requested", capability),
+            "degradation_events": [],
+        }
     if mode == "auto":
-        return {"effective": "auto", "vector": _vector_detail("not_configured"), "degradation_events": []}
+        # auto never demands a capability this build may not have, so a vector
+        # index that is missing, stale or unreadable is reported and skipped
+        # rather than turning every answer degraded.
+        status = "ready" if available else "not_configured"
+        return {
+            "effective": "auto",
+            "vector": _vector_detail(status, capability),
+            "degradation_events": [],
+        }
+    if available:
+        return {
+            "effective": mode,
+            "vector": _vector_detail("ready", capability),
+            "degradation_events": [],
+        }
     events = [
         {
             "channel": SEMANTIC_CHANNEL,
             "requested_mode": mode,
             "effective_mode": "auto",
-            "reason": "vector_capability_not_configured",
-            "detail": (
-                "本构建没有 embedding 模型与向量索引，请求的模式降级为确定性通道；"
-                "事实库与 FTS5 不受影响。"
+            "reason": str(
+                (capability or {}).get("reason")
+                or "vector_capability_not_configured"
+            ),
+            "detail": str(
+                (capability or {}).get("detail")
+                or (
+                    "本构建没有 embedding 模型与向量索引，请求的模式降级为确定性通道；"
+                    "事实库与 FTS5 不受影响。"
+                )
             ),
         }
     ]
-    return {"effective": "auto", "vector": _vector_detail("not_configured"), "degradation_events": events}
+    return {
+        "effective": "auto",
+        "vector": _vector_detail(
+            str((capability or {}).get("status") or "not_configured"), capability
+        ),
+        "degradation_events": events,
+    }
 
 
-def _vector_detail(status: str) -> dict[str, Any]:
+def _vector_detail(
+    status: str, capability: Mapping[str, Any] | None = None
+) -> dict[str, Any]:
+    """The vector layer's own report, including which model and index ran."""
+
+    identity = dict((capability or {}).get("identity") or {})
     return {
         "status": status,
-        "provider": None,
-        "model": None,
-        "index_version": None,
-        "namespace": "semantic_candidate",
+        "provider": "local" if capability else None,
+        "model": identity.get("model_id"),
+        "model_version": identity.get("model_version"),
+        "index_version": (capability or {}).get("index_version"),
+        "dimension": identity.get("dimension"),
+        "vectors": (capability or {}).get("vectors"),
+        "threshold": (capability or {}).get("threshold"),
+        "namespace": SEMANTIC_CANDIDATE,
     }
 
 
@@ -2181,16 +2681,30 @@ def _failed(query: str, mode: str, error: BaseException) -> dict[str, Any]:
         ],
         "candidates": [],
         "evidence": [],
+        "possible_related": [],
         "untraceable": [],
         "conflicts": [],
         "conflict_groups": [],
-        "retrieval": {"candidate_count": 0, "returned": 0, "boundary": RETRIEVAL_BOUNDARY},
+        "retrieval": {
+            "semantic": None,
+            "query_variants": _variants_payload(not_configured_report(), []),
+            "candidate_count": 0,
+            "returned": 0,
+            "boundary": RETRIEVAL_BOUNDARY,
+        },
         "response_meta": {
             "retrieval_state": "failed",
             "requested_mode": mode,
             "effective_mode": "failed",
             "channels": {channel: CHANNEL_FAILED for channel in CHANNELS},
             "vector": _vector_detail("not_configured"),
+            "semantic": None,
+            "query_rewrite": {
+                **_variants_payload(not_configured_report(), []),
+                "namespace": GENERATED_CHANNEL,
+                "updates_notation_dictionary": False,
+                "boundary": QUERY_VARIANT_BOUNDARY,
+            },
             "degradation_events": [
                 {
                     "channel": "index",
@@ -2314,19 +2828,29 @@ __all__ = [
     "EXPLORATION_BOUNDARY",
     "FACT_NAMESPACES",
     "FUSION_BOUNDARY",
+    "GENERATED_CHANNEL",
     "IMAGE_TRANSCRIPTION",
     "MATCH_PRIORITY",
     "MATCH_TYPES",
     "MAX_LIMIT",
     "NAMESPACES",
+    "QUERY_VARIANT_BOUNDARY",
     "RESPONSE_STATES",
     "RETRIEVAL_BOUNDARY",
     "RETRIEVAL_MODES",
     "RETRIEVAL_VERSION",
     "RetrievalError",
+    "SEMANTIC_BOUNDARY",
+    "SEMANTIC_CANDIDATE",
+    "SEMANTIC_MODE_BOUNDARY",
     "SOURCE_FACTS",
     "UNCONFIRMED_CANDIDATES",
     "UNTRACEABLE_BOUNDARY",
+    "VECTOR_LIFECYCLE_BOUNDARY",
+    "VECTOR_MODES",
+    "VECTOR_NOT_CONFIGURED",
+    "VECTOR_NOT_REQUESTED",
     "VISUAL_INTERPRETATION",
+    "WEAK_SEMANTIC_BOUNDARY",
     "retrieve",
 ]

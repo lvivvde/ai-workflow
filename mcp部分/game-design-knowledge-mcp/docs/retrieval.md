@@ -46,7 +46,8 @@
 | `confirmed_alias` | 字典 / 目录扩展词 | 带 `rule` 写明是哪条确认产生了这次扩展 |
 | `structures` | `structural_relations` + 两端区域原文 | 合成「A 之后是 B（kind）」，只描述已确认关系 |
 | `unconfirmed` | 未确认候选 | 只在 `include_candidates=true` 时执行 |
-| `semantic` | 向量召回 | 本构建 `not_configured` |
+| `generated_variant` | 本地查询改写产生的变体词 | 默认关闭；变体只是**另一种问法**，过不了守门的变体不参与检索 |
+| `semantic` | 本地文本向量召回 | 默认关闭；命中记为 `semantic_candidate`，必须回读事实才成为候选 |
 | `conflict_scan` | 已命中 claim 的另一侧 | 在 `CONFLICT_SCAN_LIMIT=200` 行内补回未命中的对侧证据 |
 
 每条通道报告 `status`：`matched`、`no_match`、`not_configured`、`unavailable`、`skipped`、`failed`。个别命名空间缺失时该通道报 `unavailable` 并给出 `reason` 与已到达的范围（`reached`），其余命名空间照常返回命中，不会因为一层不可读而丢掉整个答案。
@@ -108,25 +109,84 @@ Untraceable 候选项带 `reason` / `detail`、`supports_project_fact=false` 和
 
 ## 降级与可观察性
 
-`mode` 分 `requested` 与 `effective` 两个字段。`hybrid` / `semantic` 在本构建降级为 `auto`，并产生 `degradation_events`（`channel=semantic`、`reason=vector_capability_not_configured`、`requested_mode` / `effective_mode`）。`auto` 从不要求本构建没有的能力，因此它不因此降级。
+`mode` 分 `requested` 与 `effective` 两个字段。`hybrid` / `semantic` 在没有可用向量能力时降级为 `auto`，并产生 `degradation_events`（`channel=semantic`、`requested_mode` / `effective_mode`，`reason` 取 `vector_capability_not_configured`、`provider_not_importable`、`semantic_model_changed` 等具体原因）。`auto` 从不要求本构建没有的能力，因此它不因此降级。
 
 | 字段 | 含义 |
 |---|---|
 | `mode.requested` / `mode.effective` | 请求的模式与实际跑的模式 |
 | `response_meta.channels` | 每条通道最终状态的一览 |
-| `response_meta.vector` | `status` / `provider` / `model` / `index_version` / `namespace`（本构建为 `not_configured` 且后三项为 `null`） |
+| `response_meta.vector` | `status` / `provider` / `model` / `model_version` / `index_version` / `dimension` / `vectors` / `threshold` / `namespace`（未配置时为 `not_configured` 且模型相关字段为 `null`） |
 | `response_meta.degradation_events` | 逐条降级事件及其原因 |
-| `response_meta.rebuild_vector_index_recommended` | 仅当降级事件来自 `semantic` 时为 `true` |
+| `response_meta.rebuild_vector_index_recommended` | 有 `semantic` 降级事件、向量侧车建议重建，或显式请求 `hybrid`/`semantic` 而向量通道 `unavailable`/`not_configured`/`failed` 时为 `true` |
+| `response_meta.semantic` | 向量侧车的完整报告（`available` / `status` / `reason` / `model` / `index_version` / `vectors` / `stale_vectors` / `threshold` / `queried` / `scanned` / `weak`，未配置时为 `null`） |
+| `response_meta.query_rewrite` | 查询改写通道的报告，含 `updates_notation_dictionary=false` |
 | `response_meta.explanation_assist` | 释义补理由的 `status` / `examined` / `assisted` / `creates_candidates=false` |
 | `limitations` | 逐条可读的限制说明（含被挡住的未确认候选、不可用能力） |
 
 调用方传入的 `degradations`（例如确认记法字典不可读）会记进 `retrieval.unavailable_capabilities` 并让状态变为 `degraded`，核心 FTS5 与文档事实不受影响。
+
+## 可选向量召回与查询改写（V2-10，默认关闭）
+
+向量与改写都是**实验开关**：默认不启用，只有 Golden Set 证明增益并通过资源门槛后才可能谈默认开启。两条能力都不会成为事实依据——向量命中必须回读事实（`semantic_candidate`），改写变体只能换一种问法，不能改数值、单位、版本、时间、范围或否定。
+
+### 两个开关
+
+| 环境变量 | 取值 | 含义 |
+|---|---|---|
+| `GAME_DESIGN_EMBEDDING_PROVIDER` | 空（默认） | 不加载任何模型，行为与确定性底座完全一致 |
+| | `hashing` / `hashing:<dim>` | 内置参考实现 `local-hashing-text`（默认 256 维）：词面散列向量，零依赖、零下载、完全确定性，用于实验与回归 |
+| | `module:attribute` | 导入本地 provider（工厂或 provider 对象），契约见 `EmbeddingProvider` |
+| `GAME_DESIGN_QUERY_REWRITER` | 空（默认） | 不改写查询 |
+| | `module:attribute` | 导入本地改写器，只用于生成 `generated_variant` 词面变体 |
+
+Provider 契约是 `model_id` / `model_version` / `dimension` / `embed(texts)`；身份三元组会写进侧车，**不同模型或不同维度的向量绝不混搜**（检索时报告 `semantic_model_changed`，`semantic_index_status` 报 `incompatible`）。
+
+### 侧车生命周期
+
+向量存在**可完全删除、可重建的侧车** `<index_dir>/semantic.sqlite`（`semantic-v1`）里，与已发布的事实索引分离：写入 `*.building` 后 `os.replace` 原子发布，构建中途失败不会动到已发布事实索引。侧车只存 `unit_id`、来源/输入哈希、模型身份与向量，**不存可引用的文本**。文档向量只在显式重建时生成（导入流程不写向量），查询时只生成查询向量。
+
+| 工具 | 作用 |
+|---|---|
+| `semantic_index_status()` | 只读报告开关、provider 身份、侧车状态（`missing` / `ready` / `stale` / `incompatible`）与 `rebuild_recommended` |
+| `rebuild_semantic_index(confirmed=false)` | 预览；`confirmed=true` 时重建侧车（需要 provider 已配置，缺模型时直接报错） |
+| `drop_semantic_index(confirmed=false)` | 预览；`confirmed=true` 时删除侧车，返回 `core_tools_unaffected=true` |
+
+`stale` 指侧车记录的 `source_sha256` 与当前事实库不一致（或单元已消失）；`incompatible` 指索引版本、模型 ID/版本或维度与当前 provider 不同。两种情况下本次查询都**不参与召回**，只报告并建议重建。
+
+### 模式与向量何时运行
+
+- `lexical`：向量与改写都不跑（`not_requested`）。
+- `auto`：默认模式。只在确定性通道（`exact` / `lexical` / `confirmed_alias` / `structures`）没有事实命中时才请求向量；向量不可用也不会让 `auto` 变成 `degraded`。
+- `hybrid`：显式要求向量参与。向量不可用时状态为 `degraded`，`mode.effective` 降为 `auto`，事实与 FTS5 照常回答。
+- `semantic`：只跑向量通道，确定性通道全部报 `skipped`（`reason=semantic_mode_only`），命中只作为 `discovery` 用；没有向量能力时退回确定性答案。
+
+### 融合、阈值与 `possible_related`
+
+阈值默认 `DEFAULT_SIMILARITY_THRESHOLD=0.35`。相似度**不与 BM25 相加**：候选的 `score` 仍是它最强的单分，向量相似度单列在 `channels[].similarity` 上，命中理由里写明相似度。
+
+- 达到阈值的向量命中进 `hits`，`match_type=semantic_candidate`，文本一律通过证据回读从当前事实取回。
+- 低于阈值的向量命中**不降低** `status`、不算答案，只作为 `possible_related` 列出（`supports_project_fact=false`、带 `boundary`），并写一条 limitation。
+- 同一 `unit_id` 多通道命中仍只融合成一条候选，精确命中与确认别名不会被语义候选挤掉；冲突扫描照常运行，排名不能藏住同一 scoped claim 的另一侧。
+
+### 查询改写守门
+
+改写器生成的每个变体都要过 `variant_guard`：空串、与原文相同、超长（`MAX_VARIANT_CHARACTERS=200`）以及改变 `value` / `unit` / `version` / `time` / `negation` / `scope` 的变体一律拒绝（原因码 `VARIANT_CHANGES_*`）。一次最多采用 `MAX_GENERATED_VARIANTS=4` 个，其余记 `VARIANT_LIMIT_REACHED`。被拒与超限都记进 `response_meta.query_rewrite.rejected`，**绝不更新 Designer Notation Dictionary**（`updates_notation_dictionary=false`）。
+
+改写或 provider 开关写错（模块不存在 / 不是工厂 / 调用抛错）不会静默消失：对应通道报 `failed` 或 `unavailable`，`response_meta.degradation_events` 与 `semantic_index_status().rewriter` 都会给出原因码（如 `provider_not_importable`、`query_rewriter_not_importable`）。
+
+### 边界
+
+- V2 首发**不实现原始图片 embedding**（`IMAGE_EMBEDDING_SUPPORTED=false`）：图片仍通过转写进入检索。
+- 删掉侧车与所有模型后，事实库、FTS5、`search_evidence` 与其余核心工具不受影响。
 
 ## MCP 工具
 
 ```text
 retrieve_evidence(query, document_type=None, evidence_type=None, limit=20,
                   mode="auto", include_candidates=False, document="")
+semantic_index_status()
+rebuild_semantic_index(confirmed=False)
+drop_semantic_index(confirmed=False)
 ```
 
 `limit` 上限 `MAX_LIMIT=100`，默认 20。空 `query`、未知 `mode`、越界 `limit` 在任何查找之前就被拒绝。响应顶层字段：

@@ -177,6 +177,7 @@ MCP 客户端配置示例：
 | 分层证据包与资产 | `get_evidence_package`、`get_evidence_packages`、`get_asset`、`get_processing_manifest` |
 | 分层详尽释义 | `explain_evidence`、`explain_query` |
 | V2 检索与证据回读 | `retrieve_evidence` |
+| 可选向量召回与查询改写 | `semantic_index_status`、`rebuild_semantic_index`、`drop_semantic_index` |
 | 记法字典与人工审核 | `notation_dictionary`、`resolve_notation`、`plan_review_action`、`apply_review_action`、`review_history` |
 | 查询正文证据 | `search_evidence`、`get_evidence` |
 | 查询配置 | `search_config_cells`、`get_sheet_range` |
@@ -227,6 +228,14 @@ MCP 客户端配置示例：
 排序只决定读的顺序：`exact` → `confirmed_alias` → `lexical`，不同通道的原始分数永不相加。高排名证据也**不能藏住**同一 scoped claim 的另一个值——冲突扫描会把未命中的对侧证据补回来，跨文档的分歧两侧组成 `winner=null`、`resolution_state=unresolved` 的 Conflict Group，同文档只报 Potential Conflict Candidate。未确认候选默认不参与事实回答（计入 `held_back_unconfirmed`），只有显式 `include_candidates=true` 才进入探索模式。
 
 请求 `hybrid` / `semantic` 时本构建没有向量能力，会显式降级为 `auto` 并给出 `degradation_events`；字典不可读同样只失去扩展、FTS5 照常工作。完整契约见 [`docs/retrieval.md`](docs/retrieval.md)。
+
+### 可选向量召回与查询改写
+
+向量与查询改写是**默认关闭的实验开关**：`GAME_DESIGN_EMBEDDING_PROVIDER` 为空时完全不加载模型，行为与确定性底座一致。把它设为 `hashing` 或 `hashing:<dim>` 使用内置参考实现，或设为 `module:attribute` 导入本地 provider；`GAME_DESIGN_QUERY_REWRITER` 同理接入本地改写器。
+
+向量存在可删除、可重建的侧车 `<index_dir>/semantic.sqlite`（`semantic-v1`）里，只存 unit id、来源/输入哈希、模型身份与向量，不存可引用文本；`semantic_index_status` 报告它是否 `ready` / `stale` / `incompatible`，`rebuild_semantic_index` 与 `drop_semantic_index` 分别预览并显式重建或删除它（未传 `confirmed=true` 时只预览）。不同模型或不同维度的向量绝不混搜。
+
+`auto` 只在确定性通道没有事实命中时才请求向量；`hybrid` 显式要求向量，缺能力时降级为 `degraded` 但仍用事实与 FTS5 回答；`semantic` 只跑向量通道并把确定性通道标为 `skipped`。相似度与 BM25 永不相加，达到阈值的命中记为 `semantic_candidate` 并**回读事实**取回文本，低于阈值的只列进 `possible_related`，不降低状态也不当答案。查询改写变体不能改数值、单位、版本、时间、范围或否定，也绝不更新 Designer Notation Dictionary。V2 首发不做原始图片 embedding。完整契约见 [`docs/retrieval.md`](docs/retrieval.md)。
 
 ## 文档证据政策
 

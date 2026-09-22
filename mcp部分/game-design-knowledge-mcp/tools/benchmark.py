@@ -8,7 +8,7 @@ import tempfile
 from time import perf_counter
 import zipfile
 
-from game_design_knowledge.cli import _build_index_atomically
+from game_design_knowledge.cli import build_index_atomically
 from game_design_knowledge.server import search_evidence
 
 
@@ -33,11 +33,11 @@ def main() -> int:
             _write_docx(source / f"玩法-{index:05d}.docx", index)
 
         started = perf_counter()
-        first_report = _build_index_atomically(source, output)
+        first_report = build_index_atomically(source, output)
         first_seconds = perf_counter() - started
 
         started = perf_counter()
-        reuse_report = _build_index_atomically(source, output)
+        reuse_report = build_index_atomically(source, output)
         reuse_seconds = perf_counter() - started
 
         previous_index = os.environ.get("GAME_DESIGN_INDEX_DIR")

@@ -8,7 +8,7 @@ import shutil
 import threading
 from typing import Iterable
 
-from .cli import _build_index_atomically
+from .cli import build_index_atomically
 
 
 SUPPORTED_EXTENSIONS = {".docx", ".xlsx"}
@@ -152,7 +152,7 @@ def apply_document_import(
                     shutil.move(source, target)
                 completed_actions.append((action, source, target))
 
-            index_report = _build_index_atomically(project_root, index_directory)
+            index_report = build_index_atomically(project_root, index_directory)
         except BaseException as error:
             rollback_errors = _rollback_import(completed_actions)
             if rollback_errors:
@@ -189,7 +189,7 @@ def rebuild_shared_index(project_root: Path, index_directory: Path) -> dict[str,
             "status": "completed",
             "project_root": str(project_root),
             "index_directory": str(index_directory),
-            "index_report": _build_index_atomically(project_root, index_directory),
+            "index_report": build_index_atomically(project_root, index_directory),
             "git_paths_to_commit": [str(index_directory)],
         }
     finally:

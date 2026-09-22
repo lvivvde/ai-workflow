@@ -21,6 +21,7 @@ game-design-knowledge-mcp/
 ├── .index/knowledge/     # 可提交的预构建共享索引与图片资产
 ├── src/                  # 文件解析、增量索引、SQLite、MCP 服务
 ├── tests/                # 单元测试、集成测试和测试夹具
+├── evaluation/           # 分层离线评测的语料与脚手架
 └── examples/             # 项目内部共享资料和示例配置
 ```
 
@@ -36,6 +37,7 @@ game-design-knowledge-mcp/
 - 返回 `found`、`not_found`、`ambiguous` 或 `stale`，并附带结构化出处。
 - 只识别人工目录中的正式名和已确认别名，不自动创建或联想外号。
 - 导入和重建共享索引必须先预览、再由用户明确确认。
+- 冻结 V1 公共契约，并用分层离线评测加五条 Release-blocking invariant 守住兼容性和证据安全。
 
 正式规格见 [`docs/spec.md`](docs/spec.md)，数据模型见 [`docs/data-model.md`](docs/data-model.md)。
 
@@ -65,6 +67,17 @@ Windows 上也可以一条命令完成锁定安装、测试、复用并验证共
 ```powershell
 uv run python tools/benchmark.py --documents 1000
 ```
+
+离线评测：分层报告组件级与端到端质量，并强制五条 Release-blocking invariant。
+
+```powershell
+uv run python tools/evaluate.py `
+  --corpus evaluation/corpora/v1_compatibility `
+  --corpus evaluation/corpora/development_set `
+  --corpus evaluation/corpora/golden_set
+```
+
+评测不产出混合总分，缺失能力如实记为 `unavailable`；任一 invariant 违规即退出码 `1` 并点名样本。协议细节见 [`evaluation/README.md`](evaluation/README.md)。
 
 真实启动 stdio MCP 并调用 `index_status`：
 
@@ -163,3 +176,4 @@ $env:GAME_DESIGN_OCR_LANG = "chi_sim+eng"
 - [`docs/evidence-policy.md`](docs/evidence-policy.md)：查询时的事实与证据边界。
 - [`docs/import-policy.md`](docs/import-policy.md)：导入、确认、回滚和提交边界。
 - [`docs/catalog.md`](docs/catalog.md)：正式玩法与别名的人工确认格式。
+- [`evaluation/README.md`](evaluation/README.md)：分层评测协议、语料格式和 Release-blocking invariants。

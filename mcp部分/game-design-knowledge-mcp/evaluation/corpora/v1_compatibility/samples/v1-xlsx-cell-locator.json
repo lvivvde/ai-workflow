@@ -1,0 +1,38 @@
+{
+  "sample_id": "v1-xlsx-cell-locator",
+  "stratum": {
+    "source_type": "xlsx",
+    "content_type": "config_value",
+    "language": "zh",
+    "visual_quality": "n/a",
+    "structure_complexity": "simple",
+    "notation_complexity": "none",
+    "conflict_state": "none",
+    "capability_pack": "core",
+    "difficulty": "basic"
+  },
+  "documents": [{ "path": "数值表.xlsx" }],
+  "tool": "search_config_cells",
+  "arguments": { "query": "1200", "sheet": "战斗数值", "limit": 50 },
+  "expected": {
+    "response_state": "found",
+    "allowed_answer_set": ["1200"],
+    "required_evidence": [
+      {
+        "source_document": "数值表.xlsx",
+        "locator_contains": { "sheet_name": "战斗数值", "cell_reference": "B2" },
+        "text": "1200"
+      }
+    ],
+    "required_gaps": [],
+    "conflict_group_expected": false
+  },
+  "annotation": {
+    "annotators": ["synthetic-pass-a", "synthetic-pass-b"],
+    "adjudicated": true,
+    "guide_version": "eval-guide-0.1"
+  },
+  "modes": ["component", "e2e"],
+  "capabilities": ["core"],
+  "notes": "配置单元格必须返回工作簿、工作表与 A1 地址，且不得解释表头语义。"
+}

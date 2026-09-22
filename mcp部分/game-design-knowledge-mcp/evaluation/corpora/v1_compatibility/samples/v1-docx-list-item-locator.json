@@ -1,0 +1,38 @@
+{
+  "sample_id": "v1-docx-list-item-locator",
+  "stratum": {
+    "source_type": "docx",
+    "content_type": "rule_text",
+    "language": "zh",
+    "visual_quality": "n/a",
+    "structure_complexity": "nested",
+    "notation_complexity": "none",
+    "conflict_state": "none",
+    "capability_pack": "core",
+    "difficulty": "hard"
+  },
+  "documents": [{ "path": "活动系统.docx" }],
+  "tool": "search_evidence",
+  "arguments": { "query": "每日首次登录可获得100金币", "limit": 20 },
+  "expected": {
+    "response_state": "found",
+    "allowed_answer_set": ["每日首次登录可获得100金币。"],
+    "required_evidence": [
+      {
+        "source_document": "活动系统.docx",
+        "locator_contains": { "paragraph_index": 5, "list_level": 0 },
+        "text": "每日首次登录可获得100金币。"
+      }
+    ],
+    "required_gaps": [],
+    "conflict_group_expected": false
+  },
+  "annotation": {
+    "annotators": ["synthetic-pass-a", "synthetic-pass-b"],
+    "adjudicated": true,
+    "guide_version": "eval-guide-0.1"
+  },
+  "modes": ["component", "e2e"],
+  "capabilities": ["core"],
+  "notes": "列表项必须保留 list_level，且不能被降级为普通段落。"
+}

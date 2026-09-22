@@ -1,0 +1,31 @@
+{
+  "sample_id": "dev-no-answer",
+  "stratum": {
+    "source_type": "docx",
+    "content_type": "unknown",
+    "language": "zh",
+    "visual_quality": "n/a",
+    "structure_complexity": "simple",
+    "notation_complexity": "none",
+    "conflict_state": "expected_absent",
+    "capability_pack": "core",
+    "difficulty": "boundary"
+  },
+  "documents": [{ "path": "玩法说明.docx" }],
+  "tool": "search_evidence",
+  "arguments": { "query": "公会竞技场", "limit": 20 },
+  "expected": {
+    "response_state": "not_found",
+    "allowed_answer_set": [],
+    "required_evidence": [],
+    "required_gaps": ["当前索引的文档原文中未找到该查询，且未进行相似玩法联想。"],
+    "conflict_group_expected": false
+  },
+  "annotation": {
+    "annotators": ["synthetic-pass-a", "synthetic-pass-b"],
+    "adjudicated": true,
+    "guide_version": "eval-guide-0.1"
+  },
+  "modes": ["component", "e2e"],
+  "capabilities": ["core"]
+}

@@ -1,0 +1,60 @@
+{
+  "name": "golden_set",
+  "version": "0.1.0",
+  "split": "golden",
+  "frozen": true,
+  "guide_version": "eval-guide-0.1",
+  "description": "冻结的 held-out 合成语料。标签一旦冻结就不得修改；修改必须显式 force 并作废此前所有质量报告。真实私有语料只存在于本地受控评测仓。",
+  "documents": {
+    "战斗规则.docx": {
+      "kind": "docx",
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 1,
+          "text": "战斗规则"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "伤害计算"
+        },
+        {
+          "type": "paragraph",
+          "text": "最终伤害等于攻击力乘以暴击倍率。"
+        },
+        {
+          "type": "paragraph",
+          "text": "暴击倍率为1.5。"
+        }
+      ]
+    },
+    "掉落表.xlsx": {
+      "kind": "xlsx",
+      "sheets": [
+        {
+          "name": "Boss掉落",
+          "rows": [
+            [
+              "物品",
+              "概率"
+            ],
+            [
+              "龙鳞",
+              "0.02"
+            ],
+            [
+              "龙牙",
+              "0.08"
+            ]
+          ]
+        }
+      ]
+    }
+  },
+  "sample_fingerprints": {
+    "golden-docx-two-paragraphs": "a28070baa80a937c9114b181bd7f1fffc2cb56c6423808149110466389c7c462",
+    "golden-no-answer": "4cf2bc318ed49e681a302450c020f6ff40e3eae16e9381f1b9ea72b1ef097d07",
+    "golden-xlsx-drop-rate": "fdacab6f8eac11f33e84a9e243082eb4c05fc4ca17e6c5ed97148fa8b9f93796"
+  }
+}

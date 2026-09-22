@@ -446,7 +446,7 @@ class V1CompatibilityTests(ImageOcrTestCase):
 
         for field in ("ocr_succeeded", "ocr_failed", "ocr_unavailable", "images_indexed"):
             self.assertIn(field, status)
-        self.assertEqual(status["schema_version"], 5)
+        self.assertEqual(status["schema_version"], 6)
         self.assertEqual(status["ocr_runs"], 1)
         self.assertEqual(status["ocr_regions"], 2)
         self.assertEqual(status["ocr_normalizations"], 1)

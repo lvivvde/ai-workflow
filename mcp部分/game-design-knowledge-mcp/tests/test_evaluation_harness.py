@@ -379,6 +379,59 @@ class EvaluationRunTests(unittest.TestCase):
             "the report must follow the protocol's layer order",
         )
 
+    def test_the_layout_layers_are_measured_once_regions_reach_the_ruleset(
+        self,
+    ) -> None:
+        """V2-05: the two layout layers report real counts, not a fixed gap."""
+
+        from game_design_knowledge.evaluation.harness import _layout_layers
+
+        layers = _layout_layers(
+            "component",
+            {
+                "images_indexed": 10,
+                "layout_runs": 10,
+                "layout_images": 8,
+                "layout_elements": 40,
+                "layout_relations": 6,
+                "layout_confirmed_relations": 4,
+                "layout_candidate_relations": 2,
+                "layout_uncertain_relations": 2,
+                "layout_uncertainty": {"": 8, "overlapping_boxes": 2},
+                "layout_rulesets": {"layout-regions-v1": 10},
+                "relation_rulesets": {"flow-arrow-v1": 6},
+            },
+            ("dev-001",),
+        )
+
+        layout, relations = layers
+        self.assertEqual(layout.layer, "layout_regions")
+        self.assertEqual(layout.status, "measured")
+        self.assertEqual(layout.metrics["layout_elements_per_image"], 4.0)
+        self.assertEqual(
+            layout.metrics["layout_uncertain_images"],
+            2,
+            "only images that carry an uncertainty code are counted",
+        )
+        self.assertEqual(
+            layout.metrics["layout_rulesets"], {"layout-regions-v1": 10}
+        )
+        self.assertEqual(relations.layer, "reading_order_relations")
+        self.assertEqual(relations.status, "measured")
+        self.assertEqual(relations.metrics["layout_relations"], 6)
+        self.assertEqual(relations.metrics["layout_confirmed_relations"], 4)
+        self.assertEqual(
+            relations.metrics["relation_rulesets"], {"flow-arrow-v1": 6}
+        )
+
+        empty = _layout_layers(
+            "component",
+            {"images_indexed": 3, "layout_elements": 0},
+            (),
+        )
+        self.assertTrue(all(layer.status == "unavailable" for layer in empty))
+        self.assertTrue(all(layer.notes for layer in empty))
+
     def test_an_unknown_mode_is_rejected_instead_of_running_nothing(self) -> None:
         with self.assertRaises(ValueError):
             run_evaluation(

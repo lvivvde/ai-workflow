@@ -5,7 +5,7 @@ SQLite 是可删除、可重建的派生索引。正式 `.index/knowledge` 会�
 ## Schema 版本
 
 ```sql
-PRAGMA user_version = 5;
+PRAGMA user_version = 6;
 ```
 
 版本不匹配时不读取、不猜测：
@@ -13,6 +13,7 @@ PRAGMA user_version = 5;
 - v2 → v3 走显式迁移（`game-design-knowledge migrate`），迁移前自动备份，失败还原。
 - v3 → v4 走显式迁移，新增处理清单与 stage 尝试两张表。
 - v4 → v5 走显式迁移，新增区域级 OCR 三张表（`ocr_runs` / `ocr_regions` / `ocr_normalizations`）。
+- v5 → v6 走显式迁移，新增布局三张表（`layout_runs` / `layout_elements` / `structural_relations`）。
 - 更旧或更新的版本一律显式拒绝，并给出原因。
 
 详解见 [`revisions.md`](revisions.md)。
@@ -190,6 +191,34 @@ ocr_normalizations
 - `reason_chain` 保存这次实际走过的引擎链：试了谁、为什么跳过、最终选了谁。
 
 `evidence_state` 只允许 `transcription` 或 `machine-supported`；OCR 结果不会被标成 `explicit` / `verified`。
+
+## layout_runs / layout_elements / structural_relations
+
+区域之上的布局三张表。它们只使用 `ocr_regions` 已经记下的几何与文字，所以“这张图是怎么被读成顺序的、箭头指向谁”可以和它的转录逐条对照：
+
+```text
+layout_runs
+  image_id, ruleset_version, order_source, column_count, element_count,
+  geometry_confidence, uncertainty, detail, created_at
+
+layout_elements
+  run_id, image_id, region_index, kind, direction, reading_order,
+  row_index, column_index, depth_hint, bbox, text_confidence
+  UNIQUE(run_id, region_index)
+
+structural_relations
+  run_id, image_id, kind, status, source_region, target_region, via_regions,
+  direction, geometry_basis, detail, uncertainty, geometry_confidence,
+  ocr_confidence, rule_version, claim_boundary, created_at
+```
+
+三条同样不可协商的约定：
+
+- `layout_elements` 是 `ocr_regions` 的视图，不新增文字：`region_index` 指回同一次 `layout_runs.image_id` 的 OCR 区域，一个字都不改写。
+- `structural_relations` 分列保存 `geometry_confidence` 与 `ocr_confidence`：布局确定但文字读得差的箭头，必须看得出来是这种情况。
+- `depth_hint` 只是缩进层号，不是父指针；`claim_boundary` 随每条关系一起落库，说明它不是因果或运行时依赖。
+
+没有 OCR 区域的图片也会有一行 `layout_runs`（`element_count = 0`）：它表示“这张图被看过、没有可排序的内容”，而不是“这张图从未参与布局”。细节规则见 [`layout.md`](layout.md)。
 
 ## evidence
 

@@ -65,6 +65,9 @@ REQUIRED_TABLES = frozenset(
         "ocr_runs",
         "ocr_regions",
         "ocr_normalizations",
+        "layout_runs",
+        "layout_elements",
+        "structural_relations",
     }
 )
 

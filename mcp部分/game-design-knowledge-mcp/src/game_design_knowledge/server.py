@@ -15,6 +15,7 @@ from .ingest import (
 )
 from .freshness import freshness_report
 from .capabilities import CapabilityRuntime
+from .flow_notation import CLAIM_BOUNDARY
 from .index_revisions import processing_manifest, stage_attempt_summary
 from .ocr_normalization import extract_critical_tokens
 from .policy import EVIDENCE_POLICY
@@ -920,6 +921,7 @@ def get_image_context(image_id: int) -> dict[str, object]:
             (database_path.parent / str(result["asset_path"])).resolve()
         )
         result["ocr"] = _image_ocr_detail(index, image_id)
+        result["layout"] = _image_layout_detail(index, image_id)
         return index.complete(result)
 
 
@@ -1012,6 +1014,104 @@ def _image_ocr_detail(index: SharedIndexRead, image_id: int) -> dict[str, object
         ),
     }
     return payload
+
+
+def _image_layout_detail(
+    index: SharedIndexRead, image_id: int
+) -> dict[str, object] | None:
+    """Reading order and structural relations for one image.
+
+    Returned whole for the same reason the regions are: a caller has to see the
+    geometry basis, the rule version, and *two* confidences -- the layout's and
+    the transcription's -- to judge a relation. Every relation also carries the
+    claim boundary, because "an arrow points down to this block" is a statement
+    about the picture and nothing more.
+    """
+
+    try:
+        run = index.fetchone(
+            """
+            SELECT id, ruleset_version, order_source, column_count, element_count,
+                   geometry_confidence, uncertainty, detail
+            FROM layout_runs
+            WHERE image_id = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (image_id,),
+        )
+    except sqlite3.OperationalError:
+        return None
+    if run is None:
+        return None
+    elements = index.fetchall(
+        """
+        SELECT region_index, kind, direction, reading_order, row_index,
+               column_index, depth_hint, bbox, text_confidence
+        FROM layout_elements
+        WHERE run_id = ?
+        ORDER BY reading_order
+        """,
+        (int(run["id"]),),
+    )
+    relations = index.fetchall(
+        """
+        SELECT kind, status, source_region, target_region, via_regions, direction,
+               geometry_basis, detail, uncertainty, geometry_confidence,
+               ocr_confidence, rule_version
+        FROM structural_relations
+        WHERE run_id = ?
+        ORDER BY id
+        """,
+        (int(run["id"]),),
+    )
+    return {
+        "run": {
+            "ruleset_version": run["ruleset_version"],
+            "order_source": run["order_source"],
+            "column_count": run["column_count"],
+            "element_count": run["element_count"],
+            "geometry_confidence": run["geometry_confidence"],
+            "uncertainty": run["uncertainty"],
+            "detail": run["detail"],
+        },
+        "elements": [
+            {
+                "region_index": element["region_index"],
+                "kind": element["kind"],
+                "direction": element["direction"],
+                "reading_order": element["reading_order"],
+                "row": element["row_index"],
+                "column": element["column_index"],
+                "depth_hint": element["depth_hint"],
+                "bbox": json.loads(element["bbox"]) if element["bbox"] else None,
+                "text_confidence": element["text_confidence"],
+            }
+            for element in elements
+        ],
+        "relations": [
+            {
+                "kind": relation["kind"],
+                "status": relation["status"],
+                "source_region": relation["source_region"],
+                "target_region": relation["target_region"],
+                "via_regions": json.loads(relation["via_regions"] or "[]"),
+                "direction": relation["direction"],
+                "geometry_basis": relation["geometry_basis"],
+                "detail": relation["detail"],
+                "uncertainty": relation["uncertainty"],
+                "geometry_confidence": relation["geometry_confidence"],
+                "ocr_confidence": relation["ocr_confidence"],
+                "rule_version": relation["rule_version"],
+                "claim_boundary": CLAIM_BOUNDARY,
+            }
+            for relation in relations
+        ],
+        "evidence_boundary": (
+            "Indentation is recorded as a depth hint and never becomes a parent "
+            "or next relation; a confirmed step records visible geometry only."
+        ),
+    }
 
 
 @mcp.tool()

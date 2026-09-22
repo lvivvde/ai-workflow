@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- 交付视觉布局层：从 OCR 区域与几何构建 Visual Elements、行/列、`depth_hint` 与候选阅读顺序，并实现纵向箭头规则（独占箭头块、唯一上下端点、顺序相邻）确认 `next_step`；分支、连续箭头、缺失端点、跨容器与重叠布局一律输出 candidate 并写明原因。
+- 每条 Structural Relation 保存端点、支撑区域、几何依据、规则版本与 `claim_boundary`，并**分列**保存 `geometry_confidence` 与 `ocr_confidence`；缩进只记录 `depth_hint`，永不建立父子关系，输出不声称因果、运行时依赖或作者目的。
+- `layout` 与 `structure_relations` 从“声明但未实现”变为真实 stage：规则集版本升为 `layout-regions-v1` / `flow-arrow-v1`，两者都归 core（不依赖 `enhanced_ocr`/`visual` 包），并记录 `visual_model_required`、`visual_pack_status` 与 `visual_candidates`；实际计算在 `retrieval_projection` 内完成，因为没有 OCR 引擎时 stage 报 `no_ocr_engine` 而不是 `stage_not_implemented`。
+- Schema 升级到 v6，新增 `layout_runs`、`layout_elements`、`structural_relations` 三张表与三条索引，提供 v5 → v6 显式迁移；`index_status` 增加 `layout_*` 明细，`get_image_context` 增加 `layout`（阅读顺序元素 + 关系 + 事实边界），旧索引迁移后照常可读。
+- 评测脚手架的 `layout_regions` 与 `reading_order_relations` 层不再固定报 `unavailable`：它们按已发布索引里的要素数、关系数与规则集分布给结果，语料里没有区域可排序时仍然明确报 `unavailable` 并给出原因。
 - 交付区域级 OCR：DOCX/XLSX 内嵌图片与独立 PNG/JPEG 现在按**区域**产出边界框、阅读顺序、语言与原文，逐区域保存 Raw Transcription、规范化建议和逐 span 变更记录；规范化只产出建议，原文永不被覆盖。
 - 每区域分别记录文字、区域、关键标记三类置信度，拒绝任何单一总分载荷；数字、百分比、ID、运算符、箭头和否定词作为 Critical Transcription Tokens 按类别单独评分，`-3.5`、`ITEM_ID_01` 这类写法不会被拆错。
 - OCR 状态映射收敛到单一处：超时/引擎报错保留已产出的区域并标 `partial`，部分输出永不判 `accepted`；损坏图片、格式不支持、缺语言包、缺模型与无可用引擎各自给出准确的 execution/quality 状态、`reason_code` 与 `corrective_action`。

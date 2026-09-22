@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 import tempfile
 import unittest
@@ -11,10 +12,16 @@ from game_design_knowledge.index_revisions import (
     stage_attempts,
     stage_attempt_summary,
 )
-from game_design_knowledge.pipeline import PIPELINE_NAMES, run_pipeline
+from game_design_knowledge.pipeline import (
+    PIPELINE_NAMES,
+    layout,
+    run_pipeline,
+    structure_relations,
+)
 from game_design_knowledge.processing import (
     DEFAULT_PIPELINE,
     STAGE_BY_NAME,
+    StageContext,
     StageCache,
     default_cache_root,
     downstream_stages,
@@ -24,6 +31,77 @@ try:
     from tests.document_fixtures import write_docx
 except ModuleNotFoundError:  # pragma: no cover - discover imports tests as modules
     from document_fixtures import write_docx
+
+try:
+    from tests.document_fixtures import png_bytes, write_docx_with_image
+except ModuleNotFoundError:  # pragma: no cover - discover imports tests as modules
+    from document_fixtures import png_bytes, write_docx_with_image
+
+from game_design_knowledge.flow_notation import CLAIM_BOUNDARY
+from game_design_knowledge.ocr import OcrEngine
+from game_design_knowledge.ocr_regions import (
+    BoundingBox,
+    OcrRegion,
+    RegionObservation,
+)
+
+
+def selected_engine() -> OcrEngine:
+    """A chain tier that reports itself installed, so the run selects it.
+
+    The real engine is absent in CI, and the geometry stages have to be graded
+    on the path a machine with the engine installed takes.
+    """
+
+    return OcrEngine(
+        name="rapidocr",
+        tier="core",
+        pack="core",
+        ruleset_version="ocr-regions-v1",
+        module="json",
+    )
+
+
+def vertical_flow_observation() -> RegionObservation:
+    """One picture of the notation spec: text, arrow block, next text."""
+
+    regions = (
+        OcrRegion(
+            index=0,
+            text="点击购买",
+            bbox=BoundingBox(100.0, 0.0, 80.0, 20.0),
+            reading_order=0,
+            text_confidence=0.93,
+            region_confidence=0.97,
+            language="chi_sim",
+        ),
+        OcrRegion(
+            index=1,
+            text="↓",
+            bbox=BoundingBox(135.0, 30.0, 10.0, 20.0),
+            reading_order=1,
+            text_confidence=0.9,
+            region_confidence=0.96,
+            language="chi_sim",
+        ),
+        OcrRegion(
+            index=2,
+            text="扣除钻石",
+            bbox=BoundingBox(100.0, 60.0, 80.0, 20.0),
+            reading_order=2,
+            text_confidence=0.91,
+            region_confidence=0.97,
+            language="chi_sim",
+        ),
+    )
+    return RegionObservation(
+        engine="rapidocr",
+        engine_version="1.3.24",
+        tier="core",
+        provider_status="succeeded",
+        regions=regions,
+        language="chi_sim+eng",
+    )
 
 
 class StagedProcessingTests(unittest.TestCase):
@@ -151,12 +229,22 @@ class StagedProcessingTests(unittest.TestCase):
 
             run = run_pipeline(project_root, index_directory)
 
-            declared = run.history["layout"][-1]
+            # V2-05 delivered the layout layer, so this is no longer a declared
+            # placeholder. With no OCR engine there are no regions to order, and
+            # that is the degradation the stage has to name.
+            geometry = run.history["layout"][-1]
+            self.assertEqual(geometry.owner_ticket, "V2-05")
+            self.assertEqual(geometry.execution_status, "unavailable")
+            self.assertEqual(geometry.quality_status, "rejected")
+            self.assertEqual(geometry.reason_code, "no_ocr_engine")
+            self.assertIn("No OCR engine was selected", geometry.detail)
+            self.assertIn("core processing continues", geometry.detail)
+
+            declared = run.history["notation"][-1]
             self.assertEqual(declared.execution_status, "unavailable")
             self.assertEqual(declared.quality_status, "rejected")
-            self.assertEqual(declared.owner_ticket, "V2-05")
+            self.assertEqual(declared.owner_ticket, "V2-07")
             self.assertEqual(declared.reason_code, "stage_not_implemented")
-            self.assertIn("core processing continues", declared.detail)
 
             ocr = run.history["ocr"][-1]
             self.assertIn(ocr.execution_status, {"partial", "unavailable"})
@@ -197,6 +285,68 @@ class StagedProcessingTests(unittest.TestCase):
                 "core processing publishes the index even without the optional tiers",
             )
             self.assertEqual(run.blocking_failures(), [])
+
+    def test_the_geometry_stages_name_the_ruleset_they_apply(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            workspace = Path(temporary_directory)
+            project_root = workspace / "project"
+            index_directory = project_root / ".index" / "knowledge"
+            write_docx_with_image(
+                project_root / "docs" / "玩法.docx", "购买按钮", png_bytes()
+            )
+
+            run = run_pipeline(
+                project_root,
+                index_directory,
+                ocr_engine=selected_engine(),
+                ocr_providers={"rapidocr": lambda path: vertical_flow_observation()},
+            )
+
+            self.assertEqual(run.history["layout"][-1].execution_status, "succeeded")
+            self.assertEqual(
+                run.history["structure_relations"][-1].execution_status, "succeeded"
+            )
+            self.assertEqual(run.blocking_failures(), [])
+
+            self.assertEqual(
+                run.projection_report["layout_elements"],
+                3,
+                "every region of the image becomes a layout element",
+            )
+            self.assertEqual(run.projection_report["layout_relations"], 1)
+            self.assertEqual(run.projection_report["layout_confirmed_relations"], 1)
+
+    def test_the_geometry_handlers_state_their_ruleset_and_boundary(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            project_root = Path(temporary_directory)
+            context = StageContext(
+                project_root=project_root,
+                index_directory=project_root / ".index" / "knowledge",
+                run_id="run-1",
+                document_path="docs/玩法.docx",
+                definition=STAGE_BY_NAME["structure_relations"],
+                config={"selected_engine": "rapidocr"},
+            )
+
+            relations = structure_relations(context)
+
+            self.assertEqual(relations.execution_status, "succeeded")
+            self.assertEqual(relations.payload["ruleset_version"], "flow-arrow-v1")
+            self.assertEqual(relations.payload["claim_boundary"], CLAIM_BOUNDARY)
+            self.assertFalse(relations.payload["visual_model_required"])
+            self.assertEqual(
+                relations.payload["visual_candidates"],
+                "not_produced",
+                "deterministic geometry is complete without a visual model",
+            )
+
+            geometry = layout(replace(context, definition=STAGE_BY_NAME["layout"]))
+            self.assertEqual(geometry.payload["ruleset_version"], "layout-regions-v1")
+            self.assertEqual(geometry.payload["upstream_engine"], "rapidocr")
+
+            without_engine = layout(replace(context, config={}))
+            self.assertEqual(without_engine.execution_status, "unavailable")
+            self.assertEqual(without_engine.reason_code, "no_ocr_engine")
 
     def test_the_manifest_answers_which_runtime_model_and_fallback_ran(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

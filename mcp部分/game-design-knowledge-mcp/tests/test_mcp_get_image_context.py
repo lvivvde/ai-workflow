@@ -52,6 +52,12 @@ class GetImageContextMcpTests(unittest.TestCase):
             self.assertEqual(context["context_text"], "结算界面示意图")
             self.assertEqual(context["ocr_status"], "unavailable")
             self.assertTrue(Path(context["asset_path"]).is_file())
+            # V2-05: the reading order travels with the image. This index was
+            # built with no OCR engine, so the run is present and empty rather
+            # than absent -- "nothing was ordered" is a result, not a gap.
+            self.assertEqual(context["layout"]["run"]["element_count"], 0)
+            self.assertEqual(context["layout"]["elements"], [])
+            self.assertEqual(context["layout"]["relations"], [])
 
     def test_ai_can_search_images_by_nearby_text_through_mcp(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

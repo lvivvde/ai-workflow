@@ -36,3 +36,9 @@
 
 - `test_layout.py`：规格样例逐条对照——直线流程、空白行、缩进、分支、连续箭头、缺失端点、多列边界；确认的 `next_step` 必须能回溯到箭头和两个 Flow Node，缩进、装饰箭头与跨容器近邻都不产生 confirmed 关系，箭头块不会被当成 Flow Node。
 - `test_layout_index.py`：注入 provider 后检查落库结果——`layout_runs` / `layout_elements` / `structural_relations` 的端点、几何依据、规则版本与分列置信度；没有区域时仍写空 run；删除文档连带清掉布局行；`index_status` 的 `layout_*` 明细；缺表的老索引报 0 而不是报错；`get_image_context` 能把顺序与关系读回来。
+
+分层证据包、资产访问与独立图片导入的回归测试：
+
+- `test_evidence_package.py`：unit id 只接受 `evidence:<id>` / `image:<id>`，路径与行选择器一律拒绝；section 过滤、未知层报错；asset reference 由索引目录名与相对路径推导、路径不会被误认、跨索引不相等；Display Locator 文案；cursor 只能来自上一页。
+- `test_mcp_evidence_package.py`：正文单元把 statement 与来源引用分层，缺层报 `unit_is_not_an_image` 而不是空数组；图片单元的逐区域 / 逐元素 / 逐关系条目都能回溯到 Source / Parse Revision 与原始区域；分页按层展开且页边界不拆断来源关联；`include_v2_metadata` 是显式开关，默认响应不含任何 V2 字段；`get_asset` 只认本索引签发的引用并校验内容哈希，传路径会被拒；批量部分成功保留已取到的包；`get_processing_manifest` 与 `index_status.processing` 同源并给出 degradation。
+- `test_mcp_document_import.py`：独立 PNG 的预览 / 确认 / 落盘 / 登记（`document_type=image`、`relationship_id=standalone`），同名图片一律拒绝覆盖，以及批次失败后来源与旧索引可恢复。

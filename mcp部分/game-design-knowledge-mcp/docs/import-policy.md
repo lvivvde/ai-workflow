@@ -9,6 +9,8 @@
 | 正式项目资料（默认） | `docs` | `docs/docx/` | `docs/xlsx/` |
 | 明确指定测试/示例资料 | `examples` | `examples/sample-corpus/docx/` | `examples/sample-corpus/xlsx/` |
 
+独立 PNG/JPEG 走同一张表的 destination：正式资料落入 `docs/png/`、`docs/jpg/`、`docs/jpeg/`，测试资料落入 `examples/sample-corpus/png/` 等；它们以 **Standalone Image Source** 登记为 `document_type=image` 的文档，复用内嵌图片的 OCR、阅读顺序、结构关系与资产契约。
+
 未明确说明时一律按正式项目资料处理。当前不接受 CSV、Markdown、PDF、PPTX 或目录导入。
 
 ## 强制状态机
@@ -35,7 +37,7 @@ AI 不得跳过预览，不得自行设置 `confirmed=true`，也不得把“继
 
 ## 建库与回滚
 
-- 导入工具只接受普通 DOCX/XLSX 文件，单次最多 100 个。
+- 导入工作只接受普通 DOCX/XLSX/PNG/JPEG 文件，单次最多 100 个。
 - 拒绝符号链接和来自 `.git/`、`.venv/`、`.index/` 的输入。
 - 文件操作完成后，从 `GAME_DESIGN_PROJECT_ROOT` 原子重建 `GAME_DESIGN_INDEX_DIR`。
 - 索引写入不可变快照，校验通过后才发布；发布失败时旧 SQLite 继续可用。
@@ -46,6 +48,7 @@ AI 不得跳过预览，不得自行设置 `confirmed=true`，也不得把“继
 ## 事实边界
 
 导入成功只表示文件已进入证据库，不表示文档中的名称已成为正式玩法或别名。玩法与别名仍按 `docs/evidence-policy.md` 和 `knowledge/catalog.json` 的确认规则处理；AI 不得根据文件名、相似度或行业经验创建映射。
+独立图片同理：它只表示「这张图已进入证据库」，不表示图中的箭头、分栏或缩进已经成为正式规则；这些仍然只是可见布局，须经人工确认目录才能升级为项目事实。
 
 ## 只重建索引
 

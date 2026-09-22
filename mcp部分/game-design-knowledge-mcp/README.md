@@ -173,6 +173,7 @@ MCP 客户端配置示例：
 | 用途 | 工具 |
 |---|---|
 | 查询图片 | `search_images`、`get_image_context` |
+| 分层证据包与资产 | `get_evidence_package`、`get_evidence_packages`、`get_asset`、`get_processing_manifest` |
 | 查询正文证据 | `search_evidence`、`get_evidence` |
 | 查询配置 | `search_config_cells`、`get_sheet_range` |
 | 查询玩法 | `find_feature`、`get_feature_evidence` |
@@ -184,9 +185,11 @@ MCP 客户端配置示例：
 
 所有 shared-index 读取工具都会返回同一次读取对应的 `index_status`；只要源文档或人工目录已过期，顶层 `status` 就统一为 `stale`。`index_status` 额外带 `freshness` 与 `processing`（最近一次运行的运行清单摘要和逐 stage 尝试计数），`index_freshness` 单独返回六层各自的状态、期望/实际版本、最近成功时间和建议动作，`capability_status` 只读报告能力包、硬件画像和当前驻留。
 
+证据包以 Retrieval Unit（`evidence:<id>` / `image:<id>`）为锚点分层返回来源、陈述、转录、视觉解读、记法、解释槽与不确定项，并整份带上 provenance；`get_asset` 只接受索引签发的 Asset Reference，不接受任何文件路径；独立 PNG/JPEG 与内嵌图片走同一套证据与处理契约。详见 [`docs/evidence-package.md`](docs/evidence-package.md)。
+
 ## 第三方 AI 导入资料
 
-导入 DOCX/XLSX 必须经过以下流程：
+导入 DOCX/XLSX/PNG/JPEG 必须经过以下流程：
 
 1. 调用 `plan_document_import`，只读预览源路径、目标路径、操作和 SHA256。
 2. 向用户展示计划并等待明确确认。

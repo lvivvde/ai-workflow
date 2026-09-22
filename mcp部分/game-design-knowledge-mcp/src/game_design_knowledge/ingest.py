@@ -14,7 +14,11 @@ from .recording import record_build_revisions
 from .revisions import file_sha256
 
 
-SUPPORTED_EXTENSIONS = {".docx", ".xlsx"}
+#: Independent PNG/JPEG files become standalone image sources: they are indexed
+#: with the same image evidence contract and the same processing pipeline an
+#: embedded image gets, not as a second kind of thing.
+IMAGE_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg"})
+SUPPORTED_EXTENSIONS = {".docx", ".xlsx", *IMAGE_EXTENSIONS}
 DESTINATION_ROOTS = {
     "docs": Path("docs"),
     "examples": Path("examples") / "sample-corpus",
@@ -53,7 +57,10 @@ def plan_document_import(
             raise FileNotFoundError(f"Import source is not a file: {source}")
         extension = source.suffix.lower()
         if extension not in SUPPORTED_EXTENSIONS:
-            raise ValueError(f"Only DOCX and XLSX files can be imported: {source}")
+            raise ValueError(
+                "Only DOCX, XLSX, PNG, and JPEG files can be imported: "
+                f"{source}"
+            )
 
         relative_source = _relative_to_project(source, project_root)
         if relative_source is not None and relative_source.parts:
@@ -90,6 +97,9 @@ def plan_document_import(
                 "size": source.stat().st_size,
                 "sha256": file_sha256(source),
                 "action": action,
+                "source_type": (
+                    "standalone_image" if extension in IMAGE_EXTENSIONS else "document"
+                ),
             }
         )
 
@@ -108,7 +118,8 @@ def plan_document_import(
         "plan_token": plan_token,
         "will_rebuild_shared_index": True,
         "limitations": [
-            "只导入 DOCX/XLSX，不解析或自动登记文档中未明确记载的玩法别名。",
+            "只导入 DOCX/XLSX/PNG/JPEG，其他类型不会被自动登记。",
+            "PNG/JPEG 作为独立图片来源登记，复用内嵌图片的证据与处理契约。",
             "目标文件已存在时拒绝覆盖。",
         ],
     }

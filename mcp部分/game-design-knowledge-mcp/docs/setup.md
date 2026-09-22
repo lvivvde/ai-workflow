@@ -296,6 +296,15 @@ $env:GAME_DESIGN_OCR_LANG = "chi_sim+eng"
 
 需要确保对应语言数据已经由 Tesseract 安装。OCR不可用或失败时，图片仍会提取和建立锚点，但不会产生 OCR 文本。
 
+不能联网的机器上，能力包和模型用预下载的离线包安装，并用 `capability doctor` 先确认本机的磁盘、路径与 Tesseract 语言包是否满足要求：
+
+```powershell
+uv run game-design-knowledge capability doctor --bundle D:\bundles\gdk-2026.09 --pack core --pack enhanced_ocr
+uv run game-design-knowledge capability install --bundle D:\bundles\gdk-2026.09 --pack core --confirm
+```
+
+完整流程（包格式、哈希校验、卸载、各 Profile 的资源预算、Windows 验收清单）见 [`capabilities.md`](capabilities.md)。
+
 ## 10. 更新流程
 
 只更新代码时：

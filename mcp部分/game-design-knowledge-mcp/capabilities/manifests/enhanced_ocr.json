@@ -1,0 +1,41 @@
+{
+  "builtin_components": [],
+  "idle_timeout_seconds": 300.0,
+  "license": "Apache-2.0 (PaddleOCR, PaddleX)",
+  "model_artifacts": [],
+  "name": "enhanced_ocr",
+  "notes": [],
+  "optional": true,
+  "purpose": "PaddleOCR and PP-StructureV3 for difficult OCR and richer layout analysis.",
+  "python_artifacts": [
+    {
+      "distribution": "paddleocr",
+      "module": "paddleocr",
+      "purpose": "enhanced OCR",
+      "version": "2.9.1"
+    },
+    {
+      "distribution": "paddlepaddle",
+      "module": "paddle",
+      "purpose": "enhanced OCR runtime",
+      "version": "2.6.2"
+    },
+    {
+      "distribution": "paddlex",
+      "module": "paddlex",
+      "purpose": "layout analysis",
+      "version": "2.4.4"
+    }
+  ],
+  "requirements": {
+    "cpu_cores": 8,
+    "free_disk_gb": 10.0,
+    "ram_gb": 16.0
+  },
+  "sizes_mb": {
+    "download": 980.0,
+    "installed": 4700.0
+  },
+  "tier": "enhanced",
+  "version": "1.0.0"
+}

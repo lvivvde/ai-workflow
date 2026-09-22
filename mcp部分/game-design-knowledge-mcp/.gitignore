@@ -26,3 +26,6 @@ evaluation/runs/
 # Durable state holds archived source bytes and append-only review history.
 # The human-authored truth that is versioned lives in knowledge/ and docs/.
 .design-state/
+
+# Capability run records are measurements of one machine, not shared fixtures.
+.baseline/

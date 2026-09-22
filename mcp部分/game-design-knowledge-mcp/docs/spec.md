@@ -37,10 +37,22 @@
 game-design-knowledge index <source> --output <index> [--project-root <project>]
                      [--low-memory] [--idle-timeout <seconds>]
 game-design-knowledge capabilities
+game-design-knowledge capability status [--profile <profile>] [--model-root <dir>]
+game-design-knowledge capability doctor [--bundle <dir>] [--pack <pack>]... [--model-root <dir>]
+game-design-knowledge capability plan --bundle <dir> --pack <pack> [--model-root <dir>]
+game-design-knowledge capability install --bundle <dir> --pack <pack> [--model-root <dir>]
+                     [--confirm] [--apply-python]
+game-design-knowledge capability verify --bundle <dir> [--pack <pack>]...
+game-design-knowledge capability uninstall --pack <pack> [--model-root <dir>] [--confirm]
+game-design-knowledge capability manifests [--write <dir>]
+game-design-knowledge capability baseline [--profile <profile>] [--model-root <dir>]
+                     [--index-dir <index>] [--query <text>] [--output <file.jsonl>]
 game-design-knowledge migrate --database <index.sqlite> [--plan]
 ```
 
 `index` 现在是 8 个 stage 的流水线（见 [`processing.md`](processing.md)）：每次都写入不可变 Stage Attempt 与运行清单，可选能力缺失时明确降级、必选 stage 失败时退出码 1 且不发布索引。`--low-memory` 让能力包在批次结束时卸载，`--idle-timeout` 设置空闲驻留上限。`capabilities` 打印硬件画像、三类能力包的检查明细与当前驻留情况。
+
+`capability` 子命令覆盖一台没有网络的机器上的整套能力包生命周期（见 [`capabilities.md`](capabilities.md)）：`status` 报告包、画像与驻留，`doctor` 在安装前逐项说明本机的磁盘、路径与 Tesseract 语言包结论，`plan` / `install` 只从本地 bundle 取字节（`--no-index --find-links --only-binary :all: --require-hashes`，没有任何下载路径），`verify` 逐字节核对 bundle 与本 build 的 pin，`uninstall` 只删模型文件并保留事实、证据与词法索引（`requires_reindex=false`），`manifests` 打印或刷新随包发布的清单，`baseline` 跑一次实测并写出含延迟、峰值内存、磁盘与降级事件的运行记录。没有 `--confirm` 的 `install` / `uninstall` 只返回预览。
 
 CLI 写入同级不可变快照，校验通过后才发布；失败、中断或文件占用都不会替换已有索引。
 

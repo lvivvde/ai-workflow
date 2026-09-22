@@ -106,6 +106,8 @@ review_history(subject_type="", subject_id="", action="", limit=200)
 
 `notation_dictionary` 把已确认条目与候选、迁移候选分开放；`resolve_notation` 回答单个记号；`review_history` 返回 append-only 事件（含 before/after）。
 
+两个读工具的响应都带 `index_status`：已确认含义是人的决定，但候选读法来自索引，回答又发生在同一次运行里，所以答案自己带上该索引的计数（`documents_indexed`、`images_indexed`、`ocr_failed`、`ocr_unavailable`、`stale_documents`、`is_stale` 等），缺 OCR 引擎这类降级不会只出现在运行报告里。字段与 V1 工具的 `index_status` 同源；索引不可读时该字段为 `null`，响应本身照常返回。
+
 ## 拒绝与回滚不会损坏推导索引
 
 否决一条读法、把否决用后续事件推翻、或重新确认，都只写 `.design-state/`。测试会用字节比对证明 `knowledge.sqlite` 与源文件在整串动作前后完全一致，并且索引仍可读、仍持有同样的图片与结构关系。

@@ -66,6 +66,13 @@ RESPONSE_STATES: frozenset[str] = frozenset(
     {"found", "not_found", "partial", "ambiguous", "degraded", "failed", "stale"}
 )
 
+#: A notation expectation is either a confirmed dictionary entry, a rejected
+#: reading the response may only report as decoration, or an unknown symbol
+#: that must stay as written.
+NOTATION_STATUSES: frozenset[str] = frozenset(
+    {"confirmed", "rejected", "unknown"}
+)
+
 CORPUS_SPLITS: frozenset[str] = frozenset(
     {"development", "golden", "v1_compatibility"}
 )
@@ -155,6 +162,161 @@ class EvidenceExpectation:
 
 
 @dataclass(frozen=True)
+class TranscriptionExpectation:
+    """What an annotated image actually says, region by region.
+
+    ``text`` is the reference transcription for CER/WER, ``critical_tokens``
+    are the digits, units, IDs, operators, arrows, and negations that must
+    survive transcription verbatim, and ``regions``/``reading_order`` are the
+    annotated regions and the order they are meant to be read in.
+    """
+
+    text: str
+    critical_tokens: tuple[str, ...] = ()
+    regions: tuple[str, ...] = ()
+    reading_order: tuple[str, ...] = ()
+
+    @classmethod
+    def from_payload(
+        cls, payload: Mapping[str, Any], where: str
+    ) -> TranscriptionExpectation:
+        if not isinstance(payload, Mapping):
+            raise SchemaError(f"{where}: transcription must be an object")
+        text = payload.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise SchemaError(f"{where}: transcription.text is required")
+        return cls(
+            text=text,
+            critical_tokens=_string_tuple(
+                payload.get("critical_tokens"), where, "transcription.critical_tokens"
+            ),
+            regions=_string_tuple(
+                payload.get("regions"), where, "transcription.regions"
+            ),
+            reading_order=_string_tuple(
+                payload.get("reading_order"), where, "transcription.reading_order"
+            ),
+        )
+
+    def as_payload(self) -> dict[str, Any]:
+        return {
+            "text": self.text,
+            "critical_tokens": list(self.critical_tokens),
+            "regions": list(self.regions),
+            "reading_order": list(self.reading_order),
+        }
+
+
+@dataclass(frozen=True)
+class RelationExpectation:
+    """One annotated relation between two regions, by the labels they carry."""
+
+    source: str
+    target: str
+    kind: str = "next_step"
+
+    @classmethod
+    def from_payload(
+        cls, payload: Mapping[str, Any], where: str
+    ) -> RelationExpectation:
+        if not isinstance(payload, Mapping):
+            raise SchemaError(f"{where}: relations entries must be objects")
+        source = payload.get("source")
+        target = payload.get("target")
+        if not isinstance(source, str) or not source.strip():
+            raise SchemaError(f"{where}: relation.source is required")
+        if not isinstance(target, str) or not target.strip():
+            raise SchemaError(f"{where}: relation.target is required")
+        return cls(
+            source=source,
+            target=target,
+            kind=str(payload.get("kind") or "next_step"),
+        )
+
+    def label(self) -> str:
+        return f"{self.source}->{self.target}"
+
+    def as_payload(self) -> dict[str, Any]:
+        return {"source": self.source, "target": self.target, "kind": self.kind}
+
+
+@dataclass(frozen=True)
+class NotationExpectation:
+    """How one designer notation symbol must be resolved, and at which level."""
+
+    symbol: str
+    meaning: str
+    status: str = "confirmed"
+    scope: str = "project"
+
+    @classmethod
+    def from_payload(
+        cls, payload: Mapping[str, Any], where: str
+    ) -> NotationExpectation:
+        if not isinstance(payload, Mapping):
+            raise SchemaError(f"{where}: notation entries must be objects")
+        symbol = payload.get("symbol")
+        meaning = payload.get("meaning")
+        if not isinstance(symbol, str) or not symbol.strip():
+            raise SchemaError(f"{where}: notation.symbol is required")
+        if not isinstance(meaning, str):
+            raise SchemaError(f"{where}: notation.meaning must be a string")
+        status = str(payload.get("status") or "confirmed")
+        if status not in NOTATION_STATUSES:
+            raise SchemaError(
+                f"{where}: notation.status must be one of "
+                f"{sorted(NOTATION_STATUSES)}, got {status!r}"
+            )
+        return cls(
+            symbol=symbol,
+            meaning=meaning,
+            status=status,
+            scope=str(payload.get("scope") or "project"),
+        )
+
+    def as_payload(self) -> dict[str, Any]:
+        return {
+            "symbol": self.symbol,
+            "meaning": self.meaning,
+            "status": self.status,
+            "scope": self.scope,
+        }
+
+
+@dataclass(frozen=True)
+class ConflictExpectation:
+    """One annotated conflict group: a topic and the values that disagree."""
+
+    topic: str
+    values: tuple[str, ...] = ()
+
+    @classmethod
+    def from_payload(
+        cls, payload: Mapping[str, Any], where: str
+    ) -> ConflictExpectation:
+        if not isinstance(payload, Mapping):
+            raise SchemaError(f"{where}: conflicts entries must be objects")
+        topic = payload.get("topic")
+        if not isinstance(topic, str) or not topic.strip():
+            raise SchemaError(f"{where}: conflict.topic is required")
+        return cls(
+            topic=topic,
+            values=_string_tuple(payload.get("values"), where, "conflict.values"),
+        )
+
+    def as_payload(self) -> dict[str, Any]:
+        return {"topic": self.topic, "values": list(self.values)}
+
+
+def _string_tuple(value: Any, where: str, field_name: str) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise SchemaError(f"{where}: {field_name} must be a string list")
+    return tuple(value)
+
+
+@dataclass(frozen=True)
 class SampleAnnotation:
     annotators: tuple[str, ...]
     adjudicated: bool
@@ -201,6 +363,11 @@ class ExpectedOutcome:
     required_evidence: tuple[EvidenceExpectation, ...] = ()
     required_gaps: tuple[str, ...] = ()
     conflict_group_expected: bool = False
+    transcription: TranscriptionExpectation | None = None
+    relations: tuple[RelationExpectation, ...] = ()
+    notation: tuple[NotationExpectation, ...] = ()
+    required_atoms: tuple[str, ...] = ()
+    conflicts: tuple[ConflictExpectation, ...] = ()
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any], where: str) -> ExpectedOutcome:
@@ -221,6 +388,7 @@ class ExpectedOutcome:
         gaps = payload.get("required_gaps") or []
         if not isinstance(gaps, list) or not all(isinstance(item, str) for item in gaps):
             raise SchemaError(f"{where}: required_gaps must be a string list")
+        transcription = payload.get("transcription")
         return cls(
             response_state=str(response_state),
             allowed_answer_set=tuple(allowed),
@@ -229,6 +397,26 @@ class ExpectedOutcome:
             ),
             required_gaps=tuple(gaps),
             conflict_group_expected=bool(payload.get("conflict_group_expected", False)),
+            transcription=(
+                TranscriptionExpectation.from_payload(transcription, where)
+                if transcription is not None
+                else None
+            ),
+            relations=tuple(
+                RelationExpectation.from_payload(item, where)
+                for item in (payload.get("relations") or [])
+            ),
+            notation=tuple(
+                NotationExpectation.from_payload(item, where)
+                for item in (payload.get("notation") or [])
+            ),
+            required_atoms=_string_tuple(
+                payload.get("required_atoms"), where, "required_atoms"
+            ),
+            conflicts=tuple(
+                ConflictExpectation.from_payload(item, where)
+                for item in (payload.get("conflicts") or [])
+            ),
         )
 
     def as_payload(self) -> dict[str, Any]:
@@ -240,6 +428,13 @@ class ExpectedOutcome:
             ],
             "required_gaps": list(self.required_gaps),
             "conflict_group_expected": self.conflict_group_expected,
+            "transcription": (
+                self.transcription.as_payload() if self.transcription else None
+            ),
+            "relations": [item.as_payload() for item in self.relations],
+            "notation": [item.as_payload() for item in self.notation],
+            "required_atoms": list(self.required_atoms),
+            "conflicts": [item.as_payload() for item in self.conflicts],
         }
 
 
@@ -277,9 +472,9 @@ class DocumentSpec:
                 f"the corpus manifest: {path}"
             )
         kind = generator.get("kind")
-        if kind not in {"docx", "xlsx", "catalog"}:
+        if kind not in {"docx", "xlsx", "catalog", "png"}:
             raise SchemaError(
-                f"{where}: generator.kind must be docx, xlsx, or catalog"
+                f"{where}: generator.kind must be docx, xlsx, catalog, or png"
             )
         return cls(path=path, generator=dict(generator))
 
@@ -357,8 +552,13 @@ class Sample:
         return (
             self.stratum.values["conflict_state"] != "none"
             or self.expected.conflict_group_expected
+            or bool(self.expected.conflicts)
             or self.expected.response_state != "found"
             or self.stratum.values["notation_complexity"] != "none"
+            or bool(self.expected.notation)
+            or bool(self.expected.relations)
+            or bool(self.expected.required_atoms)
+            or self.expected.transcription is not None
             or self.stratum.values["content_type"]
             in {"flow_notation", "image_text", "conflict", "unknown"}
         )
@@ -391,6 +591,7 @@ class CorpusManifest:
     sample_fingerprints: Mapping[str, str]
     guide_version: str
     documents: Mapping[str, Any] = field(default_factory=dict)
+    review_seeds: tuple[Mapping[str, Any], ...] = ()
 
     @classmethod
     def from_payload(
@@ -420,6 +621,16 @@ class CorpusManifest:
         guide_version = payload.get("guide_version")
         if not isinstance(guide_version, str) or not guide_version.strip():
             raise SchemaError(f"{where}: manifest.guide_version is required")
+        seeds = payload.get("review_seeds") or []
+        if not isinstance(seeds, list) or not all(
+            isinstance(seed, Mapping) for seed in seeds
+        ):
+            raise SchemaError(f"{where}: manifest.review_seeds must be a list of objects")
+        for seed in seeds:
+            if not str(seed.get("action") or "").strip():
+                raise SchemaError(
+                    f"{where}: every review seed needs the action it records"
+                )
         return cls(
             name=name,
             version=version,
@@ -429,6 +640,7 @@ class CorpusManifest:
             sample_fingerprints=dict(fingerprints),
             guide_version=guide_version,
             documents=dict(payload.get("documents") or {}),
+            review_seeds=tuple(dict(seed) for seed in seeds),
         )
 
     def as_payload(self) -> dict[str, Any]:
@@ -441,6 +653,7 @@ class CorpusManifest:
             "sample_fingerprints": dict(self.sample_fingerprints),
             "guide_version": self.guide_version,
             "documents": dict(self.documents),
+            "review_seeds": [dict(seed) for seed in self.review_seeds],
         }
 
 

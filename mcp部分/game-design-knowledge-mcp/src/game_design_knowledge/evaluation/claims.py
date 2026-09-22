@@ -95,12 +95,29 @@ def first_present(claim: Mapping[str, Any], keys: Iterable[str]) -> Any:
     return None
 
 
+def claim_position(claim: Mapping[str, Any]) -> Any:
+    """Where inside its source a claim says it came from.
+
+    A claim about a standalone asset is located by the asset itself: there is no
+    smaller place inside it to point at, and the index registers such a file as
+    its own document (``document_type=image``, ``relationship_id=standalone``).
+    A claim inside a larger file still has to name the part it read, so an
+    embedded or column-oriented claim never falls back to the file.
+    """
+
+    position = first_present(claim, POSITION_FIELDS)
+    if position is not None:
+        return position
+    if str(claim.get("document_type") or "") == "image" and claim.get("asset_path"):
+        return claim.get("asset_path")
+    return None
+
+
 def claim_is_traceable(claim: Mapping[str, Any]) -> bool:
     """A traceable claim names a source and says where inside it to look."""
 
     has_source = any(claim.get(key) for key in SOURCE_REFERENCE_FIELDS)
-    has_position = any(claim.get(key) for key in POSITION_FIELDS)
-    return has_source and has_position
+    return has_source and claim_position(claim) is not None
 
 
 def jsonable(value: Any) -> Any:
@@ -120,6 +137,7 @@ __all__ = [
     "SOURCE_REFERENCE_FIELDS",
     "claim_is_traceable",
     "claim_label",
+    "claim_position",
     "claims_for",
     "first_present",
     "jsonable",

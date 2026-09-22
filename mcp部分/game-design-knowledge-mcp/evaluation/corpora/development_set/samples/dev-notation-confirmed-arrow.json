@@ -1,0 +1,41 @@
+{
+  "sample_id": "dev-notation-confirmed-arrow",
+  "stratum": {
+    "source_type": "standalone_image",
+    "content_type": "flow_notation",
+    "language": "zh",
+    "visual_quality": "clean",
+    "structure_complexity": "simple",
+    "notation_complexity": "arrow",
+    "conflict_state": "none",
+    "capability_pack": "visual",
+    "difficulty": "boundary"
+  },
+  "documents": [
+    { "path": "图像/战斗流程.png" },
+    { "path": "连招与记法.docx" }
+  ],
+  "tool": "resolve_notation",
+  "arguments": {
+    "notation_token": "→",
+    "document": "documents/图像/战斗流程.png"
+  },
+  "expected": {
+    "response_state": "found",
+    "allowed_answer_set": ["下一步"],
+    "required_evidence": [],
+    "required_gaps": [],
+    "conflict_group_expected": false,
+    "notation": [
+      { "symbol": "→", "meaning": "下一步", "status": "confirmed", "scope": "project" }
+    ]
+  },
+  "annotation": {
+    "annotators": ["synthetic-pass-a", "synthetic-pass-b"],
+    "adjudicated": true,
+    "guide_version": "eval-guide-0.1"
+  },
+  "modes": ["component", "e2e"],
+  "capabilities": ["core", "visual"],
+  "notes": "已确认的项目级记法必须解出标注含义；语料自带的 review_seeds 用常规 plan/apply 通道写入字典，运行自身的日志会记录这次确认。"
+}

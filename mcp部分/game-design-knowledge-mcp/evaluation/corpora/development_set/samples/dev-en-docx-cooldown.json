@@ -1,0 +1,38 @@
+{
+  "sample_id": "dev-en-docx-cooldown",
+  "stratum": {
+    "source_type": "docx",
+    "content_type": "rule_text",
+    "language": "en",
+    "visual_quality": "n/a",
+    "structure_complexity": "simple",
+    "notation_complexity": "none",
+    "conflict_state": "none",
+    "capability_pack": "core",
+    "difficulty": "basic"
+  },
+  "documents": [{ "path": "design_rules_en.docx" }],
+  "tool": "search_evidence",
+  "arguments": { "query": "Cooldown resets at 04:00 UTC.", "limit": 20 },
+  "expected": {
+    "response_state": "found",
+    "allowed_answer_set": ["Cooldown resets at 04:00 UTC."],
+    "required_evidence": [
+      {
+        "source_document": "design_rules_en.docx",
+        "locator_contains": { "paragraph_index": 3 },
+        "text": "Cooldown resets at 04:00 UTC."
+      }
+    ],
+    "required_gaps": [],
+    "conflict_group_expected": false
+  },
+  "annotation": {
+    "annotators": ["synthetic-pass-a"],
+    "adjudicated": false,
+    "guide_version": "eval-guide-0.1"
+  },
+  "modes": ["component", "e2e"],
+  "capabilities": ["core"],
+  "notes": "英文规则文本的最低要求：原文照回、段落定位正确。普通文本样本按协议只要单人标注。"
+}

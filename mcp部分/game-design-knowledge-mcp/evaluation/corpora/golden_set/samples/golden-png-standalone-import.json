@@ -1,0 +1,39 @@
+{
+  "sample_id": "golden-png-standalone-import",
+  "stratum": {
+    "source_type": "standalone_image",
+    "content_type": "flow_notation",
+    "language": "zh",
+    "visual_quality": "clean",
+    "structure_complexity": "simple",
+    "notation_complexity": "arrow",
+    "conflict_state": "none",
+    "capability_pack": "visual",
+    "difficulty": "hard"
+  },
+  "documents": [{ "path": "图像/结算流程.png" }],
+  "tool": "retrieve_evidence",
+  "arguments": { "query": "结算流程.png", "limit": 10 },
+  "expected": {
+    "response_state": "found",
+    "allowed_answer_set": ["图像/结算流程.png"],
+    "required_evidence": [],
+    "required_gaps": [],
+    "conflict_group_expected": false,
+    "transcription": {
+      "text": "结算 发奖",
+      "critical_tokens": ["→"],
+      "regions": ["结算", "发奖"],
+      "reading_order": ["结算", "发奖"]
+    },
+    "relations": [{ "source": "结算", "target": "发奖", "kind": "next_step" }]
+  },
+  "annotation": {
+    "annotators": ["synthetic-pass-a", "synthetic-pass-b"],
+    "adjudicated": true,
+    "guide_version": "eval-guide-0.1"
+  },
+  "modes": ["component", "e2e"],
+  "capabilities": ["core", "visual"],
+  "notes": "独立图片作为文档和检索单元；标注描述合成图应表达的内容。没有 OCR 时转写与关系必须记为 unavailable，标注不得被算作命中。记法解读不在这条样本上标注：检索响应本身不给出记号读法，那由 resolve_notation 样本负责。"
+}

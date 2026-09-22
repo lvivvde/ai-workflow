@@ -75,6 +75,8 @@ def materialize_document(document: DocumentSpec, destination: Path) -> Path:
         _write_xlsx(target, document.generator)
     elif kind == "catalog":
         _write_catalog(target, document.generator)
+    elif kind == "png":
+        _write_png(target, document.generator)
     else:  # pragma: no cover - guarded by the schema
         raise SchemaError(f"Unsupported generator kind: {kind!r}")
     return target
@@ -198,6 +200,19 @@ def _write_catalog(path: Path, generator: Mapping[str, Any]) -> None:
         json.dumps({"features": features}, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+
+
+def _write_png(path: Path, generator: Mapping[str, Any]) -> None:
+    """A standalone image document, so the corpus covers loose image imports.
+
+    The bytes are a real PNG; the corpus does not ship a photographed design
+    document, and the annotation says what the image is meant to say.
+    """
+
+    suffix = path.suffix.lower()
+    if suffix not in {".png", ".jpg", ".jpeg"}:
+        raise SchemaError(f"png generator needs a .png/.jpg/.jpeg path: {path}")
+    path.write_bytes(TINY_PNG)
 
 
 def _write_xlsx(path: Path, generator: Mapping[str, Any]) -> None:

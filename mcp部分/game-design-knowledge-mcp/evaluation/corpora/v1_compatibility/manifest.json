@@ -148,15 +148,15 @@
     }
   },
   "sample_fingerprints": {
-    "v1-catalog-canonical": "f33d30988058c062d8e9c30a532a6b980e785376de21a7a7b09fbbdafe50ac24",
-    "v1-catalog-unknown-name": "8be4e0c4d08f6cd69d77c76d9afdda3eb68ec60e45ece14960bdb2f8619d3061",
-    "v1-docx-conflict-preserved": "caacfe5390446b987461b0634ef25920af33428d7dbd23d95aa98b7c927f7781",
-    "v1-docx-image-context": "6459234dbc3ba02c5e73289cae20d3acf82e1df8c43d07053cbdda4dfc9dc1e8",
-    "v1-docx-list-item-locator": "4a251b73dc9809c0597997a34978789d73ea18f838f38415d3a9a5e01754bd1c",
-    "v1-docx-not-found": "b0849e3d95ff72933d7a2029a7d64aab9a5ac1dafa67e2231973a8899024ce3e",
-    "v1-docx-paragraph-locator": "4d711fa68d7bf7896c26f7365887506ea5c847e4ea872d0380c7819270a46337",
-    "v1-docx-table-cell-locator": "9d6436a56c37149f8cae5b41cefde6c9a003d49b594613e7209556cbfde62d39",
-    "v1-xlsx-cell-locator": "914de42b1a60832fa496ed1612b1a1776126231912ee2ac8e75baa21c76a18a8",
-    "v1-xlsx-sheet-range": "1db789cba64a0b8eb04731c919d3587de5c1203e2d5f6e0e71d924ab3c587371"
+    "v1-catalog-canonical": "5c4452616aad476f375b86eb99e5537fdc432e83e9d7b7d26176a90b1ee044e7",
+    "v1-catalog-unknown-name": "c158c31587a7cf4254c4d28faf5e053b73ae287dc098a116679b7dfecee84cd3",
+    "v1-docx-conflict-preserved": "e73a08f07e6e6ea9de5745d61cda007a1bd5948d5dc4ba130c1fa73db62b5e6f",
+    "v1-docx-image-context": "18c1e5e85b9c9b709962aee6e864653f8c67691ac9ef0cf79ec220a1e4a3bc2a",
+    "v1-docx-list-item-locator": "fbfefd4a34e989f4b265af27bc87a5d2042066c26ab931d039a6bd45f67a520f",
+    "v1-docx-not-found": "57ad584d056eb8037c79a5f68b76dacd43fce1a11f3a1ad1e722e30c40efca2e",
+    "v1-docx-paragraph-locator": "d7e4491fda881e2ebf74d831e81d32f616f7a996a4a1925cb98e46a06e5ae66c",
+    "v1-docx-table-cell-locator": "39f24b67beda89e17778c534849b8efd704dfe75717b64618d47c9bbb0b26499",
+    "v1-xlsx-cell-locator": "f786be91d61e03910cba04bbea9f6cd2bff5b6f9abf95a057ef2f0d00e806b27",
+    "v1-xlsx-sheet-range": "8ac782aa0fd956b4145aa13953d300171435d1aeeadf63e2e49c2bcd9b3dd2af"
   }
 }

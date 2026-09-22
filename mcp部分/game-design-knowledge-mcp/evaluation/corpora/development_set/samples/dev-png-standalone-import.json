@@ -1,0 +1,42 @@
+{
+  "sample_id": "dev-png-standalone-import",
+  "stratum": {
+    "source_type": "standalone_image",
+    "content_type": "flow_notation",
+    "language": "zh",
+    "visual_quality": "clean",
+    "structure_complexity": "simple",
+    "notation_complexity": "arrow",
+    "conflict_state": "none",
+    "capability_pack": "visual",
+    "difficulty": "hard"
+  },
+  "documents": [{ "path": "图像/战斗流程.png" }],
+  "tool": "retrieve_evidence",
+  "arguments": { "query": "战斗流程.png", "limit": 10 },
+  "expected": {
+    "response_state": "found",
+    "allowed_answer_set": ["图像/战斗流程.png"],
+    "required_evidence": [],
+    "required_gaps": [],
+    "conflict_group_expected": false,
+    "transcription": {
+      "text": "开始 判定 结算",
+      "critical_tokens": ["→"],
+      "regions": ["开始", "判定", "结算"],
+      "reading_order": ["开始", "判定", "结算"]
+    },
+    "relations": [
+      { "source": "开始", "target": "判定", "kind": "next_step" },
+      { "source": "判定", "target": "结算", "kind": "next_step" }
+    ]
+  },
+  "annotation": {
+    "annotators": ["synthetic-pass-a", "synthetic-pass-b"],
+    "adjudicated": true,
+    "guide_version": "eval-guide-0.1"
+  },
+  "modes": ["component", "e2e"],
+  "capabilities": ["core", "visual"],
+  "notes": "独立图片作为自己的文档入库，并作为可回读的检索单元出现。图片字节是合成占位图，标注记录的是这张图应当表达的内容：没有 OCR 引擎时该样本的转写与关系必须记为 unavailable，而不是被算作命中。"
+}

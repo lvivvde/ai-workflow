@@ -11,12 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
-from .claims import (
-    POSITION_FIELDS,
-    claim_label,
-    claims_for,
-    first_present,
-)
+from .claims import claim_label, claim_position, claims_for
 from .schema import Sample
 
 
@@ -298,7 +293,7 @@ def _check_source_references_traceable(execution: SampleExecution) -> list[str]:
         if isinstance(asset, str) and known_assets and asset not in known_assets:
             details.append(f"claim {label} points at an unregistered asset: {asset}")
 
-        if first_present(claim, POSITION_FIELDS) in (None, {}, "", []):
+        if claim_position(claim) is None:
             details.append(f"claim {label} carries no locator")
 
         for derived in claim.get("derived_from") or []:

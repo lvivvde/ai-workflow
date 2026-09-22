@@ -1,0 +1,38 @@
+{
+  "sample_id": "dev-degraded-embedded-image",
+  "stratum": {
+    "source_type": "embedded_image",
+    "content_type": "image_text",
+    "language": "zh",
+    "visual_quality": "degraded",
+    "structure_complexity": "simple",
+    "notation_complexity": "none",
+    "conflict_state": "none",
+    "capability_pack": "enhanced_ocr",
+    "difficulty": "boundary"
+  },
+  "documents": [{ "path": "模糊截图.docx" }],
+  "tool": "search_images",
+  "arguments": { "query": "模糊截图", "limit": 10 },
+  "expected": {
+    "response_state": "found",
+    "allowed_answer_set": ["模糊截图"],
+    "required_evidence": [
+      {
+        "source_document": "模糊截图.docx",
+        "locator_contains": { "paragraph_index": 2 },
+        "text": "模糊截图"
+      }
+    ],
+    "required_gaps": [],
+    "conflict_group_expected": false
+  },
+  "annotation": {
+    "annotators": ["synthetic-pass-a", "synthetic-pass-b"],
+    "adjudicated": true,
+    "guide_version": "eval-guide-0.1"
+  },
+  "modes": ["component", "e2e"],
+  "capabilities": ["core", "enhanced_ocr"],
+  "notes": "降级图片样本：核心 OCR 失败后增强包才有意义。没有可用引擎时必须显式报告降级，且不得用相似文字补出图中内容。"
+}

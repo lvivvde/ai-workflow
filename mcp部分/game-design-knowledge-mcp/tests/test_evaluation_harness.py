@@ -53,6 +53,7 @@ RUN_PAYLOAD_KEYS = frozenset(
         "invariants",
         "layers",
         "strata",
+        "capability_packs",
         "response_states",
         "network_violations",
         "notes",
@@ -225,6 +226,49 @@ class InvariantTests(unittest.TestCase):
         self.assertTrue(any("no source reference" in detail for detail in details))
         self.assertTrue(any("no locator" in detail for detail in details))
 
+    def test_a_standalone_asset_locates_its_own_claim(self) -> None:
+        execution = make_execution(
+            make_sample(),
+            response={
+                "status": "found",
+                "evidence": [
+                    {
+                        "evidence_id": 2,
+                        "source_document": "images/flow.png",
+                        "document_type": "image",
+                        "asset_path": "index/assets/abc.png",
+                    }
+                ],
+            },
+        )
+
+        results = evaluate_invariants([execution])
+
+        self.assertEqual([], violation_summary(results))
+
+    def test_an_embedded_asset_still_needs_the_part_it_came_from(self) -> None:
+        execution = make_execution(
+            make_sample(),
+            response={
+                "status": "found",
+                "evidence": [
+                    {
+                        "evidence_id": 3,
+                        "source_document": "rules.docx",
+                        "document_type": "docx",
+                        "asset_path": "index/assets/def.png",
+                    }
+                ],
+            },
+        )
+
+        results = evaluate_invariants([execution])
+
+        details = self.assert_only_failing(
+            INVARIANT_SOURCE_REFERENCES_TRACEABLE, results
+        )
+        self.assertTrue(any("no locator" in detail for detail in details))
+
     def test_degradation_not_hidden_flags_a_hidden_degradation(self) -> None:
         execution = make_execution(
             make_sample(),
@@ -328,6 +372,18 @@ class CorpusProtocolTests(unittest.TestCase):
 
 
 class EvaluationRunTests(unittest.TestCase):
+    def test_every_measured_layer_names_the_samples_behind_it(self) -> None:
+        run = run_evaluation([load_corpus(CORPORA_ROOT / "v1_compatibility")])
+
+        measured = [layer for layer in run.layer_results if layer.status == "measured"]
+        self.assertTrue(measured)
+        for layer in measured:
+            with self.subTest(layer=layer.layer, mode=layer.mode):
+                self.assertTrue(
+                    layer.sample_ids,
+                    f"{layer.layer}@{layer.mode} is measured but names no sample",
+                )
+
     def test_run_reports_layers_separately_and_passes_the_invariants(self) -> None:
         run = run_evaluation([load_corpus(CORPORA_ROOT / "v1_compatibility")])
 

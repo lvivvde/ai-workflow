@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- 新增 V2-12 评测语料与首轮分层基线：`development_set` / `golden_set` 扩充到覆盖 DOCX、XLSX、内嵌图片与**独立 PNG**、中英文、箭头记法、未知符号、冲突、无答案、降级与释义 strata；Golden Set 升到 `0.2.0` 并保持冻结（改标签必须显式 `--force` 且作废此前报告）。
+- 新增标注协议 [`evaluation/annotation-guide.md`](evaluation/annotation-guide.md)（`eval-guide-0.1`）：普通转写单人标注加抽检、高风险事实/关系/冲突/无答案/释义双人标注 + 第三方裁决；逐字段说明来源范围、文字与 Critical Token、区域与阅读顺序、关系、记法（confirmed/rejected/unknown 与 scope）、Allowed Answer Set、引用、缺口与冲突怎么标。
+- 语料可用 `manifest.review_seeds` 声明样本需要的人工确认，评测在跑样本前用常规 `plan_review_action` / `apply_review_action` 逐条复现，运行自己的日志会记下这些决定，语料不依赖任何手工改过的状态目录。
+- 评测层补齐带标注指标：OCR 层按标注算 CER/WER、Critical Token 覆盖与区域完整率；关系层算 Precision/Recall/F1；记法层核对已确认含义是否解出、未知符号是否保持未知；释义层算 Required Atom Coverage、引用可解析率、unsupported atom rate、缺口披露与冲突保留；检索层增加 `recall_at_1`、`recall_at_5`、无答案误报/漏报。**没有 OCR 引擎时这些层如实报 `unavailable` 并写明原因，标注不算命中。**
+- 报告新增 Run 段（Run Manifest、硬件档位、语料版本与指纹）与 Capability packs 段：每个能力包单独给样本数与响应状态，绝不与其它包合并；比率类指标一律给计数、总数、比率与 Wilson 95% 区间，报告不产出任何混合总分。
+- 新增发布门槛 [`evaluation/quality-gates.json`](evaluation/quality-gates.json)（`quality-gates-0.1`）与判定实现 `evaluation/gates.py`：逐层绝对下限/上限 + 所需最少标注样本数 + 相对回退限制；判定顺序为「整层缺报 → `environment`；非 `measured` → 该层 `unavailable_class`（默认 `environment`）；样本不足或指标未发布 → `annotation`；越界 → 该层默认归因」，不可测量不等于通过。失败按数据/标注/OCR/布局/关系/记法/检索/事实/释义/性能/环境分类并拆成后续任务，阈值取法与 Windows 无 OCR 的边界写在 [`evaluation/quality-gates.md`](evaluation/quality-gates.md)。
+- `tools/evaluate.py` 新增 `--gates`（默认提交的门槛）、`--no-gates` 与 `--baseline`：运行时打印门禁判定，失败以退出码 `1` 结束并逐条列出错误分类与后续任务；新增 `tools/judge_gates.py`，可对已记录的 `run.json` 重新判门禁而不必重跑语料（改阈值后重判历史结果，或让基线脚本把 invariant 判定与门禁判定分开）。
+- 新增 Windows 分层基线脚本 `scripts/windows-baseline.ps1`：对 `baseline` / `recommended` / `visual` 三档各跑一次评测，产出 Evaluation Run Manifest，逐档判门禁并在下一轮作为相对回退基线（`-SkipEvaluation` 只重判历史 Run Manifest，`-RequireGates` 让门禁失败也以非零退出码结束）。
+- 记法读工具（`resolve_notation` / `notation_dictionary`）的响应新增 `index_status`：已确认含义是人的决定，但候选读法来自索引，答案因此带上该索引的计数，缺 OCR 引擎这类降级不再只出现在运行报告里，`degradation_not_hidden` 不变量在记法层同样成立。
+- 修 `evaluation/claims.py` 的定位判定：独立资产（`document_type=image`）整份文件就是被声明的对象，由资产本身定位；内嵌图片、表格单元格等仍必须写明读取位置。此前独立图片的检索命中会被误判为「缺少定位」。
+- 修 `statement_fidelity` 层漏报支撑样本的问题：该层此前已测量却把样本数报成 0，门禁因此只能给「标注不足」，现在层会点名所有返回了声明的样本。
+- 修 `scripts/windows-smoke.ps1` 与 `scripts/windows-baseline.ps1` 的编码：两份脚本以 UTF-8 无 BOM 保存时，Windows PowerShell 5.1 会把中文按系统代码页解码并直接解析失败；现在带 BOM，5.1 与 7 都能正常解析。
+
 - 新增完全离线的能力包投递（V2-11）：一个 bundle 目录（`bundle.json` + `wheels/<pack>/` + `models/<pack>/`）携带 wheel 与模型文件、各自的 SHA256、以及它是在什么平台和解释器上打包的；`OfflineBundle.read/verify/plan/install/uninstall` 逐字节核对后才会安装，pin 漂移、多出未声明的 wheel 或模型、checksum 不符、跨平台或跨 Python 版本一律在安装前停下，并给出 `bundle_missing`/`bundle_manifest_invalid`/`bundle_unknown_pack`/`bundle_pack_absent`/`bundle_platform_mismatch`/`bundle_python_mismatch`/`bundle_artifact_missing`/`bundle_checksum_mismatch`/`bundle_pin_mismatch` 这些可判定的原因码，而不是一句“失败”。
 - 安装与卸载都没有网络路径：Python 侧只打印固定的离线命令（`--no-index --find-links <bundle>/wheels/<pack> --only-binary :all: --require-hashes -r <已写出的哈希 requirements>`），模型文件由 `ModelStore` 从 bundle 目录按 pin 拷贝，全程不启动下载、不在幕后 `pip install`；测试在 `block_network` 里把 `subprocess.run` 换成断言来证明这一点。卸载只删模型文件，事实、证据与词法索引不动（`requires_reindex=false`），文件被占用时以 `capability_removal_failed` 停下并列出仍在原地的文件。
 - 新增 `capability` CLI 子命令组：`status`、`doctor`、`plan`、`install`、`verify`、`uninstall`、`manifests`、`baseline`。`capability doctor` 在安装前逐项说明这台机器能不能装：磁盘余量与每个包的 `min_free_disk_gb`、模型根是否绝对路径/可写/长度在 200 字符内、Tesseract 是否存在以及是否真的带有所需语言包（默认 `chi_sim+eng`，缺 `chi_sim` 就明说缺它，而不是事后把中文转写得很差），并对每个包报出当前状态；`install` / `uninstall` 不带 `--confirm` 只返回预览。

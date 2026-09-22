@@ -53,6 +53,29 @@ class StratumResult:
         }
 
 
+@dataclass(frozen=True)
+class CapabilityResult:
+    """One capability pack's own slice of a run.
+
+    A pack that was declared by the corpus but never exercised is reported with
+    its sample count rather than being dropped, so "not measured" and "measured
+    and green" stay distinguishable.
+    """
+
+    capability: str
+    sample_count: int
+    modes: tuple[str, ...]
+    response_states: Mapping[str, Mapping[str, int]]
+
+    def as_payload(self) -> dict[str, Any]:
+        return {
+            "capability": self.capability,
+            "sample_count": self.sample_count,
+            "modes": list(self.modes),
+            "response_states": jsonable(self.response_states),
+        }
+
+
 def ordered_layers(layers: Iterable[str]) -> list[str]:
     """Keep the protocol's layer order rather than discovery order."""
 
@@ -78,8 +101,24 @@ def render_markdown(
     invariant_payloads: Sequence[Mapping[str, Any]],
     environment: Mapping[str, Any],
     extra_notes: Sequence[str] = (),
+    capability_results: Sequence[CapabilityResult] = (),
+    hardware_profile: str = "",
 ) -> str:
     lines: list[str] = [f"# Evaluation report {run_id}", ""]
+
+    lines.append("## Run")
+    lines.append("")
+    lines.append(f"- hardware profile: {hardware_profile or 'unspecified'}")
+    lines.append(f"- corpora: {len(corpus_descriptions)}")
+    lines.append(
+        "- samples: "
+        f"{sum(int(corpus.get('sample_count') or 0) for corpus in corpus_descriptions)}"
+    )
+    lines.append(
+        "- scoring: every layer keeps its own raw counts, sample counts and "
+        "95% Wilson intervals; no layer is blended into a single score."
+    )
+    lines.append("")
 
     lines.append("## Corpora")
     lines.append("")
@@ -156,6 +195,28 @@ def render_markdown(
         lines.append(f"| {result.label} | {result.sample_count} | {observed or '—'} |")
     lines.append("")
 
+    if capability_results:
+        lines.append("## Capability packs")
+        lines.append("")
+        lines.append(
+            "A pack's numbers cover only the samples that declare it, so a pack "
+            "that measured badly cannot hide behind a pack that measured well."
+        )
+        lines.append("")
+        lines.append("| capability pack | samples | modes | expected → observed |")
+        lines.append("|---|---|---|---|")
+        for capability in capability_results:
+            observed = ", ".join(
+                f"{expected}→{observed}:{count}"
+                for expected, row in sorted(capability.response_states.items())
+                for observed, count in sorted(row.items())
+            )
+            lines.append(
+                f"| {capability.capability} | {capability.sample_count} | "
+                f"{', '.join(capability.modes) or '—'} | {observed or '—'} |"
+            )
+        lines.append("")
+
     if extra_notes:
         lines.append("## Notes")
         lines.append("")
@@ -182,6 +243,44 @@ def _matrix_table(matrix: Mapping[str, Mapping[str, int]]) -> str:
 
 
 def _format(value: Any) -> str:
+    if isinstance(value, float):
+        return f"{value:.4f}"
+    if isinstance(value, Mapping):
+        return _format_mapping(value)
+    return str(value)
+
+
+def _format_mapping(value: Mapping[str, Any]) -> str:
+    """Render the report's structured metrics as counts, rates, and intervals."""
+
+    if {"count", "total", "rate"} <= set(value):
+        interval = value.get("interval_95")
+        rate = "n/a" if value.get("rate") is None else f"{value['rate']:.4f}"
+        bounds = (
+            f" [{interval[0]:.4f}, {interval[1]:.4f}]"
+            if isinstance(interval, (list, tuple)) and len(interval) == 2
+            else ""
+        )
+        return f"{value['count']}/{value['total']} rate={rate}{bounds}"
+    if {"precision", "recall", "f1"} <= set(value):
+        return (
+            f"P={_short(value['precision'])} R={_short(value['recall'])} "
+            f"F1={_short(value['f1'])} "
+            f"(tp={value.get('true_positive')} fp={value.get('false_positive')} "
+            f"fn={value.get('false_negative')})"
+        )
+    if {"matched", "expected"} <= set(value):
+        missing = value.get("missing") or []
+        return (
+            f"matched={value['matched']}/{value['expected']} "
+            f"rate={_short(value.get('rate'))} missing={list(missing)}"
+        )
+    return str(dict(value))
+
+
+def _short(value: Any) -> str:
+    if value is None:
+        return "n/a"
     if isinstance(value, float):
         return f"{value:.4f}"
     return str(value)

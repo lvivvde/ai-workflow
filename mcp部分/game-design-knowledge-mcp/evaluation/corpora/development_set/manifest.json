@@ -51,13 +51,126 @@
           ]
         }
       ]
+    },
+    "图像/战斗流程.png": {
+      "kind": "png",
+      "note": "1x1 合成占位图。独立图片用它验证：图片作为独立文档入库、OCR 不可用时显式降级，以及降级时不得编造图中文字。"
+    },
+    "连招与记法.docx": {
+      "kind": "docx",
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "连招流程"
+        },
+        {
+          "type": "image",
+          "relationship_id": "rIdImage1",
+          "media_name": "word/media/flow.png"
+        },
+        {
+          "type": "paragraph",
+          "text": "读图顺序为从上到下。"
+        }
+      ]
+    },
+    "design_rules_en.docx": {
+      "kind": "docx",
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 1,
+          "text": "Combat rules"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "Cooldown"
+        },
+        {
+          "type": "paragraph",
+          "text": "Cooldown resets at 04:00 UTC."
+        }
+      ]
+    },
+    "挑战规则.docx": {
+      "kind": "docx",
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 1,
+          "text": "挑战规则"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "每周次数"
+        },
+        {
+          "type": "paragraph",
+          "text": "玩家每周可挑战5次。"
+        }
+      ]
+    },
+    "挑战规则-旧版.docx": {
+      "kind": "docx",
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 1,
+          "text": "挑战规则"
+        },
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "每周次数"
+        },
+        {
+          "type": "paragraph",
+          "text": "玩家每周可挑战8次。"
+        }
+      ]
+    },
+    "模糊截图.docx": {
+      "kind": "docx",
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 2,
+          "text": "模糊截图"
+        },
+        {
+          "type": "image",
+          "relationship_id": "rIdImage1",
+          "media_name": "word/media/blurred.png"
+        }
+      ]
     }
   },
+  "review_seeds": [
+    {
+      "action": "confirm",
+      "notation_token": "→",
+      "meaning": "下一步",
+      "scope_kind": "project",
+      "reason": "合成语料自带的项目级记法确认，供评测在隔离工作区里复现已确认条目",
+      "actor": "synthetic-reviewer"
+    }
+  ],
   "sample_fingerprints": {
-    "dev-docx-heading-path": "0ac361a78c473c047325814ff30feb60a008a13da5d907e9d91635b655ac42bc",
-    "dev-docx-list-item": "ab337fc67d9276463f3f1e20322dd622734f242327d7130ed4cba29fa6ecafec",
-    "dev-no-answer": "9fda806953a5e6da6894cfbcbe56c11cc6055c4f746a9fc3da90849f14891488",
-    "dev-notation-unknown": "d2db0bc2cbbc30e19b157f7b1f5d8cf5e05529ca3635850f10da3b04a9fcb7a3",
-    "dev-xlsx-value": "ee57e612d84588094d1fe4e0bff63789d08a4c807ac228d05b10b44360712533"
+    "dev-conflict-challenge-counts": "7b23fedfdb9018658f4091b167774cb143474ab4350ab031cc550a798d2f6076",
+    "dev-degraded-embedded-image": "420950e78190d22f0a245ffdc259854db7a66b005e10371d231042fe50c5abdf",
+    "dev-docx-embedded-image-flow": "c5e6fe973b555826665efa9cda81600e3283acc848eacf23e39b10d7c9dac8c1",
+    "dev-docx-heading-path": "12a989f2bb75a3001e4d4ca0970b0329e1ef24ee56b3f16d4196a4f9e1e82c06",
+    "dev-docx-list-item": "29d89eba7017656adbf033510bcc628d93a26b869c17329e5c58fc535cf6f80a",
+    "dev-en-docx-cooldown": "2d7658c9b24087b21db5e27bbb923a33bebaa2b9587b3b4e385cef046b8d189f",
+    "dev-explanation-daily-tasks": "3ed5cb51cdfe768bf2810d9f3b918c1f245867a1432c7100cefcdd2238d31747",
+    "dev-no-answer": "94de67f81101af4b6e6083ae21b85736ad6f999db186b6bae4d4ee605c8bcc84",
+    "dev-notation-confirmed-arrow": "40132eae8140ec20e05feefb1511b0ceb22e3626f21d36f21ef5c029fc91ff07",
+    "dev-notation-unknown": "b34fcabe402df543e0eaf5a3add64b963ee71eeefc93dff2923cab815352e4b1",
+    "dev-notation-unknown-token": "dd049ad630905fc7130319b327656e0ce1e7a808de1c58cf9756368c38537b60",
+    "dev-png-standalone-import": "4684a06911deb6cd337ca2de432c6fe8370ee3e883f38c1b7807dba3cbf44a0f",
+    "dev-xlsx-value": "18741c4473d5a2a42a0950edbc22d1673405d15c57ef75c7d029a1d5e26387cd"
   }
 }

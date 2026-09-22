@@ -763,6 +763,25 @@ def _resolution_of(entries: Sequence[Mapping[str, Any]]) -> Mapping[str, Any] | 
     return None
 
 
+def runtime_view(index: Any) -> dict[str, Any] | None:
+    """The index's own counts, so a notation answer never hides a degradation.
+
+    A confirmed meaning is a human decision, but the candidates below it come
+    straight from the index, and the callers of this module sit inside the same
+    run. Reporting the index's counts here keeps a degraded build visible in the
+    answer itself instead of only in the run report, and it is the same view the
+    V1 tools and the retrieval layer already carry.
+    """
+
+    status = getattr(index, "status", None)
+    if not callable(status):
+        return None
+    try:
+        return dict(status())
+    except Exception:  # noqa: BLE001 - a broken index must not break the answer
+        return None
+
+
 def resolve(
     state: Any,
     index: Any = None,
@@ -994,6 +1013,7 @@ def resolve(
         "boundary": BOUNDARY,
         "candidate_boundary": CANDIDATE_BOUNDARY,
         "limitations": limitations,
+        "index_status": runtime_view(index),
     }
 
 
@@ -1129,6 +1149,7 @@ def dictionary_view(
             "A meaning confirmed on one parse revision does not follow the next "
             "revision on its own; it waits as a migration candidate.",
         ],
+        "index_status": runtime_view(index),
     }
     if include_history:
         payload["history"] = history
@@ -1219,6 +1240,7 @@ __all__ = [
     "normalize_scope",
     "plan_token",
     "resolve",
+    "runtime_view",
     "scope_covers",
     "scope_document",
     "scope_key",

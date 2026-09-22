@@ -1,0 +1,45 @@
+{
+  "sample_id": "golden-docx-embedded-image-text",
+  "stratum": {
+    "source_type": "embedded_image",
+    "content_type": "image_text",
+    "language": "zh",
+    "visual_quality": "clean",
+    "structure_complexity": "simple",
+    "notation_complexity": "arrow",
+    "conflict_state": "none",
+    "capability_pack": "core",
+    "difficulty": "hard"
+  },
+  "documents": [{ "path": "结算流程.docx" }],
+  "tool": "search_images",
+  "arguments": { "query": "结算流程", "limit": 10 },
+  "expected": {
+    "response_state": "found",
+    "allowed_answer_set": ["结算流程"],
+    "required_evidence": [
+      {
+        "source_document": "结算流程.docx",
+        "locator_contains": { "paragraph_index": 2 },
+        "text": "结算流程"
+      }
+    ],
+    "required_gaps": [],
+    "conflict_group_expected": false,
+    "transcription": {
+      "text": "结算 发奖",
+      "critical_tokens": ["→"],
+      "regions": ["结算", "发奖"],
+      "reading_order": ["结算", "发奖"]
+    },
+    "relations": [{ "source": "结算", "target": "发奖", "kind": "next_step" }]
+  },
+  "annotation": {
+    "annotators": ["synthetic-pass-a", "synthetic-pass-b"],
+    "adjudicated": true,
+    "guide_version": "eval-guide-0.1"
+  },
+  "modes": ["component", "e2e"],
+  "capabilities": ["core"],
+  "notes": "内嵌图片命中必须带段落定位；转写与关系标注描述合成图应表达的内容。"
+}

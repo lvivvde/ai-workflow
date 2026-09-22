@@ -13,6 +13,7 @@ from .ingest import (
     plan_document_import as build_document_import_plan,
     rebuild_shared_index as rebuild_index_files,
 )
+from .freshness import freshness_report
 from .policy import EVIDENCE_POLICY
 from .shared_index import SharedIndexRead, index_status_for_database
 
@@ -25,12 +26,38 @@ mcp = MCPServer(
 
 @mcp.tool()
 def index_status() -> dict[str, object]:
-    """Return index counts, OCR outcomes, timestamp, and source freshness."""
+    """Return index counts, OCR outcomes, timestamps, and per-layer freshness."""
     return _index_status_for_database(_database_path())
 
 
+@mcp.tool()
+def index_freshness() -> dict[str, object]:
+    """Report source, state, parse, lexical, semantic, and explanation freshness."""
+    database_path = _database_path()
+    return _freshness_for_database(database_path)
+
+
 def _index_status_for_database(database_path: Path) -> dict[str, object]:
-    return index_status_for_database(database_path)
+    status = index_status_for_database(database_path)
+    status["freshness"] = _freshness_for_database(database_path)
+    return status
+
+
+def _freshness_for_database(database_path: Path) -> dict[str, object]:
+    try:
+        return freshness_report(_project_root(), database_path.parent)
+    except (RuntimeError, FileNotFoundError, OSError) as error:
+        return {
+            "status": "unknown",
+            "is_fresh": False,
+            "worst_state": "missing",
+            "blocking_dimensions": [],
+            "dimensions": {},
+            "detail": (
+                "Per-layer freshness needs GAME_DESIGN_PROJECT_ROOT pointing at "
+                f"the project that owns this index: {error}"
+            ),
+        }
 
 
 @mcp.tool()

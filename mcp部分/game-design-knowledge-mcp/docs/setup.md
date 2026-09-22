@@ -124,7 +124,18 @@ OCR统计取决于本机是否安装 Tesseract。未安装时，13 张图片应�
 
 重建成功后，把 `.index/knowledge/knowledge.sqlite` 和 `.index/knowledge/assets/` 与原始资料一起提交。数据库中的源文档路径使用相对索引目录的形式；另一台电脑的仓库绝对路径和 Git checkout 文件时间即使不同，只要 SHA256 内容一致，`index_status()` 也不会误报过期。
 
-索引命令使用 staging 构建：全部成功后才替换正式索引；失败不会覆盖已有可用索引。
+索引命令写入同级不可变快照（`.index/.knowledge.build-*`），校验通过后才替换正式索引并更新 `CURRENT.json`。失败、中断或被其他进程占用时旧索引继续可读，未通过校验的快照不会成为 active。快照与 `CURRENT.json` 只属于本机，不提交。
+
+重建还会把本次构建的来源、解析修订和检索单元登记到持久状态目录 `.design-state/`（默认路径；可用 `GAME_DESIGN_STATE_DIR` 覆盖）。该目录保存 Review Events、确认字典和逻辑文档身份，删除 `.index` 后重建不会丢失；它默认不进 Git，随机附仓库提交的人工真源仍是 `knowledge/catalog.json` 与 `docs/`。
+
+如果 `index_status()` 报告 `schema_version` 不是 3，或 `index_freshness` 把 `lexical_index` 报成 `incompatible`，说明索引是旧 schema，需要显式迁移：
+
+```powershell
+uv run game-design-knowledge migrate --plan --database .index\knowledge\knowledge.sqlite
+uv run game-design-knowledge migrate --database .index\knowledge\knowledge.sqlite
+```
+
+迁移前会自动备份到 `.index/knowledge/schema-backups/`，失败会还原备份；比当前版本更新的 schema 只会被拒绝，不会被旧代码改写。
 
 ## 5. 索引自己的策划资料
 
@@ -298,9 +309,11 @@ uv run python tools/smoke_stdio.py .index/knowledge
 git add .index/knowledge
 ```
 
-未变化文件按 SHA 复用，变化文件在 staging 中替换，删除文件同步清理；全部成功后才发布。原文与索引必须放在同一个提交中。其他成员拉取该提交即可复用，也可以先通过 `index_status()` 检查 `is_stale`。
+未变化文件按 SHA 复用，变化文件在快照中替换，删除文件同步清理；校验通过后才发布。原文与索引必须放在同一个提交中。其他成员拉取该提交即可复用，也可以先通过 `index_status()` 检查 `is_stale`。
 
 人工确认的玩法与别名写入 `knowledge/catalog.json`。别名必须是包含 `name`、`confirmed_at`、`confirmed_by` 的对象；MCP 不会自动添加外号。
+
+重建前后可以分别调用 `index_freshness()`，确认 source / durable state / parse / lexical 四层都回到 `fresh`。每层都会给出期望版本、实际版本、最近成功时间和建议动作。
 
 ## 11. 常见问题
 
@@ -330,6 +343,14 @@ Tesseract 不在 `PATH` 中。这不影响图片提取、标题搜索和位置�
 
 至少一份源文档在索引后被修改、移动或删除。重新运行建立索引的命令。
 
+### `index_freshness()` 报告 `lexical_index` 为 `incompatible`
+
+已发布的索引是旧 schema。按第 4 节的 `game-design-knowledge migrate` 显式迁移，或删除 `.index/knowledge` 后重建。
+
+### 持久状态被拒绝（`StateVersionError`）
+
+`.design-state/manifest.json` 由更新版本的 MCP server 写过。先升级本仓库代码（`git pull && uv sync --locked`），不要手工改写该文件；它记录了不可重建的人工确认历史。
+
 ### 查询别名没有结果
 
 这是严格证据模式的预期行为。只有文档明确记载或用户明确确认的别名才允许使用，AI 不会自动联想。
@@ -342,6 +363,10 @@ Tesseract 不在 `PATH` 中。这不影响图片提取、标题搜索和位置�
 .venv/
 *.sqlite-shm
 *.sqlite-wal
+.index/.knowledge.build-*/     # 不可变快照与恢复资料
+.index/knowledge/CURRENT.json  # 本机发布指针
+.index/knowledge/schema-backups/
+.design-state/                 # 归档字节与人工确认历史
 __pycache__/
 *.pyc
 ```

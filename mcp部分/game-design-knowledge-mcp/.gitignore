@@ -16,3 +16,13 @@ evaluation/runs/
 !.index/knowledge/knowledge.sqlite
 !.index/knowledge/assets/
 !.index/knowledge/assets/**
+
+# The publication pointer names local snapshot directories, so it stays local.
+.index/knowledge/CURRENT.json
+
+# Pre-migration backups of the previous schema stay local.
+.index/knowledge/schema-backups/
+
+# Durable state holds archived source bytes and append-only review history.
+# The human-authored truth that is versioned lives in knowledge/ and docs/.
+.design-state/

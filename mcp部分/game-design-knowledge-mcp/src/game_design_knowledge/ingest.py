@@ -9,6 +9,8 @@ import threading
 from typing import Iterable
 
 from .cli import build_index_atomically
+from .recording import record_build_revisions
+from .revisions import file_sha256
 
 
 SUPPORTED_EXTENSIONS = {".docx", ".xlsx"}
@@ -85,7 +87,7 @@ def plan_document_import(
                 "destination": str(target),
                 "extension": extension,
                 "size": source.stat().st_size,
-                "sha256": _file_sha256(source),
+                "sha256": file_sha256(source),
                 "action": action,
             }
         )
@@ -160,6 +162,9 @@ def apply_document_import(
                     f"Import failed and rollback was incomplete: {rollback_errors}"
                 ) from error
             raise
+        # Recording happens after the index is published, so a durable-state
+        # problem can never roll back files that are already indexed.
+        revisions = record_build_revisions(project_root, index_directory)
 
         return {
             "status": "completed",
@@ -168,6 +173,7 @@ def apply_document_import(
             "files": plan["items"],
             "index_directory": str(index_directory),
             "index_report": index_report,
+            "revisions": revisions,
             "git_paths_to_commit": [
                 str(project_root / DESTINATION_ROOTS[destination]),
                 str(index_directory),
@@ -177,7 +183,12 @@ def apply_document_import(
         _IMPORT_LOCK.release()
 
 
-def rebuild_shared_index(project_root: Path, index_directory: Path) -> dict[str, object]:
+def rebuild_shared_index(
+    project_root: Path,
+    index_directory: Path,
+    *,
+    state_directory: Path | None = None,
+) -> dict[str, object]:
     project_root = project_root.resolve()
     index_directory = index_directory.resolve()
     if not index_directory.is_relative_to(project_root):
@@ -185,11 +196,16 @@ def rebuild_shared_index(project_root: Path, index_directory: Path) -> dict[str,
     if not _IMPORT_LOCK.acquire(blocking=False):
         raise RuntimeError("Another document import or index rebuild is already running")
     try:
+        index_report = build_index_atomically(project_root, index_directory)
+        revisions = record_build_revisions(
+            project_root, index_directory, state_directory=state_directory
+        )
         return {
             "status": "completed",
             "project_root": str(project_root),
             "index_directory": str(index_directory),
-            "index_report": build_index_atomically(project_root, index_directory),
+            "index_report": index_report,
+            "revisions": revisions,
             "git_paths_to_commit": [str(index_directory)],
         }
     finally:
@@ -215,11 +231,3 @@ def _relative_to_project(path: Path, project_root: Path) -> Path | None:
         return path.relative_to(project_root)
     except ValueError:
         return None
-
-
-def _file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source_file:
-        for chunk in iter(lambda: source_file.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()

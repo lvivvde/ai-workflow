@@ -14,6 +14,8 @@ from .ingest import (
     rebuild_shared_index as rebuild_index_files,
 )
 from .freshness import freshness_report
+from .capabilities import CapabilityRuntime
+from .index_revisions import processing_manifest, stage_attempt_summary
 from .policy import EVIDENCE_POLICY
 from .shared_index import SharedIndexRead, index_status_for_database
 
@@ -37,10 +39,34 @@ def index_freshness() -> dict[str, object]:
     return _freshness_for_database(database_path)
 
 
+@mcp.tool()
+def capability_status() -> dict[str, object]:
+    """Report capability packs, the hardware profile, and model residency."""
+    return CapabilityRuntime().status()
+
+
 def _index_status_for_database(database_path: Path) -> dict[str, object]:
     status = index_status_for_database(database_path)
     status["freshness"] = _freshness_for_database(database_path)
+    status["processing"] = _processing_for_database(database_path)
     return status
+
+
+def _processing_for_database(database_path: Path) -> dict[str, object]:
+    """Stage attempts and the last run's provenance, read from the index."""
+
+    try:
+        summary = stage_attempt_summary(database_path)
+    except (sqlite3.DatabaseError, OSError) as error:
+        return {"status": "unreadable", "detail": str(error)}
+    manifest = processing_manifest(database_path)
+    return {
+        "status": "recorded" if manifest is not None else "not_recorded",
+        "run_id": (manifest or {}).get("run_id"),
+        "configured_fingerprint": (manifest or {}).get("configured_fingerprint"),
+        "profile": (manifest or {}).get("profile"),
+        "attempts": summary,
+    }
 
 
 def _freshness_for_database(database_path: Path) -> dict[str, object]:

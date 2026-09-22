@@ -12,11 +12,12 @@ import zipfile
 
 from mcp import Client
 
-from game_design_knowledge.cli import build_index_atomically
+from game_design_knowledge.index_build import build_index_atomically
 from game_design_knowledge.ingest import (
     apply_document_import,
     plan_document_import,
 )
+from game_design_knowledge.processing import ProcessingError
 from game_design_knowledge.server import mcp
 
 
@@ -110,7 +111,7 @@ class DocumentImportMcpTests(unittest.TestCase):
             plan = plan_document_import(
                 [str(incoming)], project_root, "docs", "move"
             )
-            with self.assertRaises(zipfile.BadZipFile):
+            with self.assertRaises(ProcessingError) as raised:
                 apply_document_import(
                     source_paths=[str(incoming)],
                     project_root=project_root,
@@ -119,6 +120,12 @@ class DocumentImportMcpTests(unittest.TestCase):
                     operation="move",
                     plan_token=str(plan["plan_token"]),
                 )
+            self.assertIn("retrieval_projection", str(raised.exception))
+            self.assertIsInstance(
+                raised.exception.__cause__,
+                zipfile.BadZipFile,
+                "the stage that failed preserves the exception that stopped it",
+            )
 
             self.assertTrue(incoming.is_file())
             self.assertFalse((project_root / "docs" / "xlsx" / incoming.name).exists())

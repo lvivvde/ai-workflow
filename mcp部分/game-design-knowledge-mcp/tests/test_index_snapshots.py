@@ -5,7 +5,7 @@ import sqlite3
 import tempfile
 import unittest
 
-from game_design_knowledge.cli import build_index_atomically
+from game_design_knowledge.index_build import build_index_atomically
 from game_design_knowledge.indexer import SCHEMA_VERSION, index_documents
 from game_design_knowledge.snapshots import (
     CURRENT_NAME,

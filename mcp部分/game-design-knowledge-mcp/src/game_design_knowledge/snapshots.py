@@ -56,6 +56,12 @@ REQUIRED_TABLES = frozenset(
         "catalog_features",
         "catalog_aliases",
         "catalog_metadata",
+        "index_builds",
+        "schema_migrations",
+        "source_revisions",
+        "parse_revisions",
+        "processing_manifests",
+        "stage_attempts",
     }
 )
 

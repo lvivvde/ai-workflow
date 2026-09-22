@@ -98,6 +98,26 @@ uv run game-design-knowledge index . --output .index/knowledge
 
 构建过程是"写快照 → 校验 → 发布"三步：每次构建写入同级 `.index/.knowledge.build-*` 快照目录，校验 SQLite 完整性和 schema 版本后才用重命名替换 `.index/knowledge/knowledge.sqlite` 并写 `CURRENT.json`。发布失败时旧索引继续可读，未校验的快照永远不会成为 active。快照目录是本地恢复资料，不进入 Git。
 
+## 分阶段处理与本地能力包
+
+建索引是 8 个 stage 的流水线（`source_parse` → `ocr` → `layout` → `structure_relations` → `notation` → `statements` → `explanation_cache` → `retrieval_projection`）。每个 stage 独立重试、独立缓存、独立降级：
+
+| 机制 | 行为 |
+|---|---|
+| Stage Attempt | 每次执行写一行不可变记录；重试新增行，不覆盖历史 |
+| Stage Fingerprint | 输入、上游输出、运行时版本、生效配置任一变化，只失效该 stage 及其下游 |
+| Stage Cache | 内容寻址，整条指纹一致才命中，命中后重新哈希校验 |
+| 能力包 | `core`（必装）、`enhanced_ocr`、`visual`（可选，均本地安装） |
+| 降级链 | RapidOCR → PaddleOCR → Tesseract 兼容回退，逐级记录被跳过的原因 |
+| 驻留 | 批次内复用；idle timeout、`--low-memory`、显式卸载、进程退出都会释放 |
+
+可选能力缺失时索引照常发布，缺的部分明确标成 `unavailable`/`degraded`；必选 stage 失败时 `cli index` 退出码 1 且不发布。完整契约见 [`docs/processing.md`](docs/processing.md)。
+
+```powershell
+uv run game-design-knowledge capabilities
+uv run game-design-knowledge index . --output .index\knowledge --low-memory
+```
+
 ## 不可变修订与持久状态
 
 派生索引可以随时删除重建；任何"人做过决定"的东西都不放在里面：
@@ -112,7 +132,7 @@ uv run game-design-knowledge index . --output .index/knowledge
 
 `.design-state` 是本机持久状态，默认不进 Git；随仓库提交的人工真源仍是 `knowledge/catalog.json` 和 `docs/`。目录位置可用 `GAME_DESIGN_STATE_DIR` 覆盖。删除 `.index` 或整个派生索引后重建，Review Events、确认字典和逻辑文档身份都不会丢失。
 
-索引 schema 当前为 `PRAGMA user_version = 3`。旧索引必须显式迁移，不能被静默误读：
+索引 schema 当前为 `PRAGMA user_version = 4`。旧索引必须显式迁移，不能被静默误读：
 
 ```powershell
 uv run game-design-knowledge migrate --plan --database .index\knowledge\knowledge.sqlite
@@ -157,10 +177,11 @@ MCP 客户端配置示例：
 | 查询玩法 | `find_feature`、`get_feature_evidence` |
 | 检查索引 | `index_status` |
 | 分层新鲜度 | `index_freshness` |
+| 能力包与驻留 | `capability_status` |
 | 受控导入 | `plan_document_import`、`import_documents` |
 | 重建共享索引 | `rebuild_shared_index` |
 
-所有 shared-index 读取工具都会返回同一次读取对应的 `index_status`；只要源文档或人工目录已过期，顶层 `status` 就统一为 `stale`。`index_status` 额外带 `freshness`，`index_freshness` 单独返回六层各自的状态、期望/实际版本、最近成功时间和建议动作。
+所有 shared-index 读取工具都会返回同一次读取对应的 `index_status`；只要源文档或人工目录已过期，顶层 `status` 就统一为 `stale`。`index_status` 额外带 `freshness` 与 `processing`（最近一次运行的运行清单摘要和逐 stage 尝试计数），`index_freshness` 单独返回六层各自的状态、期望/实际版本、最近成功时间和建议动作，`capability_status` 只读报告能力包、硬件画像和当前驻留。
 
 ## 第三方 AI 导入资料
 
@@ -206,4 +227,5 @@ $env:GAME_DESIGN_OCR_LANG = "chi_sim+eng"
 - [`docs/import-policy.md`](docs/import-policy.md)：导入、确认、回滚和提交边界。
 - [`docs/catalog.md`](docs/catalog.md)：正式玩法与别名的人工确认格式。
 - [`docs/revisions.md`](docs/revisions.md)：不可变修订、快照发布、持久状态与 schema 迁移。
+- [`docs/processing.md`](docs/processing.md)：处理阶段、指纹与缓存契约、能力包与降级语义。
 - [`evaluation/README.md`](evaluation/README.md)：分层评测协议、语料格式和 Release-blocking invariants。

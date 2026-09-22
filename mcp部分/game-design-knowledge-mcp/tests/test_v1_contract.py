@@ -16,7 +16,7 @@ import zipfile
 
 from mcp import Client
 
-from game_design_knowledge.cli import build_index_atomically
+from game_design_knowledge.index_build import build_index_atomically
 from game_design_knowledge.server import mcp
 from game_design_knowledge.v1_contract import (
     CONFIG_CELL_FIELDS,

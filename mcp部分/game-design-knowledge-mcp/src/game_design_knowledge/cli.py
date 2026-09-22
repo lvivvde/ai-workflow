@@ -6,12 +6,12 @@ from pathlib import Path
 import sys
 from typing import Sequence
 
-from .index_revisions import parse_revisions_by_document, record_index_build
-from .indexer import DEFAULT_PROCESSING_MANIFEST, SCHEMA_VERSION, index_documents
+from .capabilities import CapabilityRuntime
+from .index_build import build_index_atomically
 from .migration import SchemaVersionError, apply_migration, plan_migration
+from .pipeline import run_pipeline
+from .processing import ProcessingError
 from .recording import record_build_revisions
-from .revisions import ProcessingManifest
-from .snapshots import IndexSnapshotStore
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -30,6 +30,21 @@ def build_parser() -> argparse.ArgumentParser:
             "recorded only for documents inside it."
         ),
     )
+    index_parser.add_argument(
+        "--low-memory",
+        action="store_true",
+        help="Unload capability packs after each batch instead of keeping them warm.",
+    )
+    index_parser.add_argument(
+        "--idle-timeout",
+        type=float,
+        default=None,
+        help="Seconds a loaded capability pack may stay resident while idle.",
+    )
+    commands.add_parser(
+        "capabilities",
+        help="Report capability packs, hardware profile, and model residency",
+    )
     migrate_parser = commands.add_parser(
         "migrate", help="Explicitly migrate an existing index to the current schema"
     )
@@ -43,7 +58,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = build_parser().parse_args(argv)
     if arguments.command == "migrate":
         return _migrate(arguments)
-    report = build_index_atomically(arguments.source, arguments.output)
+    if arguments.command == "capabilities":
+        print(json.dumps(CapabilityRuntime().status(), ensure_ascii=False, indent=2))
+        return 0
+    try:
+        run = run_pipeline(
+            arguments.source,
+            arguments.output,
+            low_memory=arguments.low_memory,
+            idle_timeout=arguments.idle_timeout,
+        )
+        run.raise_for_blocking_failures()
+    except ProcessingError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    report = dict(run.projection_report)
+    report["processing"] = run.status()
     _record_durable_state(
         arguments.source, arguments.output, arguments.project_root
     )
@@ -87,44 +117,6 @@ def _project_root_for(
     if output.parent.name == ".index":
         return output.parent.parent.resolve()
     return None
-
-
-def build_index_atomically(
-    source: Path,
-    output: Path,
-    *,
-    processing_manifest: ProcessingManifest | None = None,
-) -> dict[str, int]:
-    """Build into a snapshot, then publish it with a rename and a pointer write."""
-
-    output = output.resolve()
-    if output == Path(output.anchor):
-        raise ValueError("Index output must not be a filesystem root")
-    if output.exists() and not output.is_dir():
-        raise ValueError(f"Index output exists and is not a directory: {output}")
-
-    store = IndexSnapshotStore(output, expected_schema_version=SCHEMA_VERSION)
-    with store.new_build(note=f"index {source.name}") as build:
-        manifest = processing_manifest or DEFAULT_PROCESSING_MANIFEST
-        report = index_documents(
-            source, build.directory, processing_manifest=manifest
-        )
-        build.report = dict(report)
-        build.record_parse_revisions(
-            parse_revisions_by_document(build.database_path)
-        )
-        record_index_build(
-            build.database_path,
-            build_id=build.build_id,
-            processing_manifest=manifest.as_payload(),
-            parse_revisions=build.parse_revisions,
-            state="validated",
-            note=build.note,
-            started_at=build.started_at,
-        )
-        build.validate()
-        build.publish()
-        return report
 
 
 def _migrate(arguments: argparse.Namespace) -> int:

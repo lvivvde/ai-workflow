@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- 新增策划记法字典（Designer Notation Dictionary）：一个记号在一个范围里的含义作为人工确认结果写入 Durable Project State（`.design-state/notation.json`），与确认别名并列，既不进推导索引也不改源文档；索引提出的读法只是 candidate，永远不参与回答，也不能被引用为项目事实。
+- 范围分 `project` / `document_type` / `document` / `region` 四档并做字面匹配：为一个区域确认的含义不会回答同文档其它区域、其它文档或其它类型；路径必须是项目相对路径，绝对路径、盘符、`..` 一律拒绝。来源优先级为 `region_legend` > `document_definition` > `document_type_definition` > `project_dictionary` > `candidate_interpretation` > `external_common_knowledge`。
+- 存在分歧时不静默选边：只要更低层不同意，答案就停在 `ambiguous`（`resolved` 为空、`supports_project_fact=false`）并给出按优先级本该胜出的 `authority_winner`；要落定必须用 `resolve_conflict` 记录一次裁决（`authority` 要求胜出者层级严格更高，同级或人故意选低层必须写 `human_choice`）。
+- 新增 `plan_review_action` / `apply_review_action`：任何写入先返回 preview（before / after / changes / writes / affected / `propagates_beyond_scope=false` / `derived_knowledge_index_modified=false`）与 `plan_token`，只有带同一 token 且 `confirmed=true` 才应用；token 用 `hmac.compare_digest` 比对，覆盖动作、范围、含义、层级、被替代者、理由、执行人与写入前的字典摘要，不覆盖时钟（条目 ID 与记录时间都在应用时刻生成），字典一变即失效并要求重新预览。
+- 五个 Review Action：`confirm`、`correct`（旧条目转 `superseded` 并保留原值）、`reject`（条目写字典、候选只写日志）、`ignore`（只写日志）、`resolve_conflict`。每次应用**先写 append-only Review Event、再物化视图**，事件记录操作者、时间、范围、前后值、理由与依据。
+- 版本迁移只产生候选：条目在确认时绑定 `parse_revision_id`，新修订成为 active 后不再参与回答，而是列入 `migration_candidates`（`requires_review_event=true`、`auto_applied=false`）；要让同一读法在新修订生效必须重新做一次显式 Review Action。
+- 新增只读工具 `notation_dictionary(document="", include_history=False, limit=200)`、`resolve_notation(...)` 与 `review_history(...)`；`DurableState.status()` 增加 `notation_entries` / `notation_confirmed` / `notation_superseded` / `notation_rejected` 计数。V1 工具签名与默认响应、`index_status` 的 V1 字段均不变。
+- 拒绝或回滚审核只写 `.design-state/`：测试用字节比对证明整串动作前后 `knowledge.sqlite` 与源文件完全一致，索引仍可读、仍持有同样的图片与结构关系。
 - 新增 V2 分层证据包：`get_evidence_package(unit_id)` / `get_evidence_packages(unit_ids)` 以 `evidence:<id>`、`image:<id>` 为锚点，把 source、statement、transcription、visual_interpretation、notation、explanation、uncertainties 分层返回，并整份带上 provenance 与逐层 `unavailable`；每个派生条目都解析到 revision-aware Source Reference 与原始区域（含 bbox）。
 - 新增受控资产访问 `get_asset(asset_reference)`：只接受索引签发的 `asset-<32 位十六进制>` 引用，任何文件路径一律 `not_found`；引用由索引目录名与索引内相对路径推导，可选内联 base64 并同时报告读取到的 SHA256 与 `sha256_matches_index`。
 - 新增 `get_processing_manifest()`：返回处理运行清单、逐 stage 尝试摘要与统一的 degradation 事实（回退 stage、降级 stage、被拒 stage、原因码计数），与 `index_status.processing` 同源。

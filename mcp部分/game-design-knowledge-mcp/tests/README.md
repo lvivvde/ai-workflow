@@ -38,7 +38,7 @@ V2-12 评测语料与发布门槛的回归测试：
 区域级 OCR 的回归测试：
 
 - `test_ocr_regions.py`：状态映射表的每一行（成功、部分输出、超时、损坏图片、缺语言包、缺模型、格式不支持、无可用引擎）、`partial` 永不判 accepted、质量门槛的逐条失败原因、三类置信度分列且拒绝单一总分、`evidence_state` 不允许 `explicit`/`verified`。
-- `test_ocr_images.py`：用注入 provider 覆盖 DOCX 内嵌图片与独立 PNG/JPEG、损坏图片、超时、缺语言包、缺模型、降级链的停止与下钻、Raw 不被规范化覆盖、逐 span 变更回放、关键标记逐类评分，以及不传新参数时 V1 路径与 `index_status` 字段保持不变。
+- `test_ocr_images.py`：用注入 provider 覆盖 DOCX 内嵌图片与独立 PNG/JPEG、损坏图片、超时、缺语言包、缺模型、降级链的停止与下钻、Raw 不被规范化覆盖、逐 span 变更回放、关键标记逐类评分，以及不传新参数时 V1 路径与 `index_status` 字段保持不变；PaddleOCR 的语言码映射（项目按 Tesseract 写法配置语言，引擎有自己的集合，认不出的原样传下去）。
 
 布局与纵向箭头关系的回归测试：
 
@@ -74,5 +74,5 @@ V2-10 可选本地向量召回与查询改写的回归测试（实验开关默�
 
 V2-11 离线能力包、校验与资源预算的回归测试：
 
-- `test_offline_bundle.py`：一个合成的离线包逐字节验证（wheel 与模型的 SHA256、平台/解释器、pin 漂移、多出来的 wheel 与模型一律拒绝而不是顺手装上）；bundle 目录缺失、manifest 非法、bundle 版本与包名不认识时各自报专属原因；安装全程不启动任何子进程也不联网（在 `block_network` 内把 `subprocess.run` 换成断言），模型文件按 pin 拷贝、Python 侧只打印固定的 `--no-index --find-links ... --only-binary :all: --require-hashes` 命令与哈希 requirements；卸载需要确认、只删模型文件、保留 `facts_untouched` / `lexical_index_untouched` / `requires_reindex=false`，文件被占用时以 `capability_removal_failed` 停下并列出幸存文件；`capability_doctor` 报出磁盘、路径与 Tesseract 结论（缺 `chi_sim` 说缺哪个语言包、完全没有 Tesseract 报 `tesseract_missing`、`GAME_DESIGN_OCR_LANG` 会移动必需语言集合），相对路径与超长路径分别以 `model_root_not_absolute` / `model_root_path_long` 阻断；随包发布的清单与 `manifest_bytes()` 逐字节一致，`bundle.schema.json` 的 required 集合、bundle 版本与包名 enum 与本 build 对齐。
+- `test_offline_bundle.py`：一个合成的离线包逐字节验证（wheel 与模型的 SHA256、平台/解释器、pin 漂移、多出来的 wheel 与模型一律拒绝而不是顺手装上）；bundle 目录缺失、manifest 非法、bundle 版本与包名不认识时各自报专属原因；安装全程不启动任何子进程也不联网（在 `block_network` 内把 `subprocess.run` 换成断言），模型文件按 pin 拷贝、Python 侧只打印固定的 `--no-index --find-links ... --only-binary :all: --require-hashes` 命令与哈希 requirements；卸载需要确认、只删模型文件、保留 `facts_untouched` / `lexical_index_untouched` / `requires_reindex=false`，文件被占用时以 `capability_removal_failed` 停下并列出幸存文件；`capability_doctor` 报出磁盘、路径与 Tesseract 结论（缺 `chi_sim` 说缺哪个语言包、完全没有 Tesseract 报 `tesseract_missing`、`GAME_DESIGN_OCR_LANG` 会移动必需语言集合），相对路径与超长路径分别以 `model_root_not_absolute` / `model_root_path_long` 阻断；随包发布的清单与 `manifest_bytes()` 逐字节一致，`bundle.schema.json` 的 required 集合、bundle 版本与包名 enum 与本 build 对齐；已提交的闭包 lock 与清单逐条一致（每个发行版恰好一个 wheel、每个文件带 64 位 SHA256、只含该解释器装得上的 wheel），所以「pin 指向索引里不存在的版本」不必联网才暴露。
 - `test_run_records.py`：三档 Profile 的预算各自独立且返回副本（改一份不影响另一份）、未知 Profile 在 `start()` 前就被拒绝；运行记录带该 Profile 的预算、延迟、峰值内存与磁盘前后值，降级事件逐条保留，异常路径（已降级后抛错）同样写出 `status="failed"` 的记录；JSONL 记录追加、缺失文件读成空、损坏行报出行号；没有能力包的机器上 `capability_baseline()` 仍然产出 `succeeded` 的记录，并把每个不可用包写成一条降级事件。

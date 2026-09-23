@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import tempfile
 import unittest
@@ -47,7 +48,14 @@ from game_design_knowledge.revisions import file_sha256
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MANIFEST_DIRECTORY = PROJECT_ROOT / "capabilities" / "manifests"
+LOCK_DIRECTORY = PROJECT_ROOT / "capabilities" / "locks"
 SCHEMA_PATH = PROJECT_ROOT / "capabilities" / "bundle.schema.json"
+
+
+def _normalised(name: object) -> str:
+    """PEP 503 name matching, the same comparison the bundle check makes."""
+
+    return re.sub(r"[-_.]+", "-", str(name).strip().lower())
 
 
 def _wheel_content(distribution: str, version: str) -> bytes:
@@ -618,6 +626,80 @@ class CapabilityManifestTests(unittest.TestCase):
             set(packs["additionalProperties"]["required"]),
             {"version", "wheels", "models"},
         )
+
+
+class CapabilityClosureLockTests(unittest.TestCase):
+    """A committed resolution, so a closure can be checked without a network.
+
+    The pin that broke enhanced_ocr was ``paddlex==2.4.4``, a version no index
+    carries: nothing offline could tell a resolvable pin from a typo. A lock
+    records the resolution that did happen - one wheel per distribution, with
+    the SHA256 of the bytes - and the manifest cannot drift away from it
+    without failing here.
+    """
+
+    def locks(self) -> list[tuple[Path, dict]]:
+        paths = sorted(LOCK_DIRECTORY.glob("*.json"))
+        self.assertTrue(paths, f"no closure lock is committed in {LOCK_DIRECTORY}")
+        return [
+            (path, json.loads(path.read_text(encoding="utf-8"))) for path in paths
+        ]
+
+    def test_a_lock_lists_exactly_the_closure_its_pack_declares(self) -> None:
+        for path, lock in self.locks():
+            with self.subTest(lock=path.name):
+                self.assertIn(lock["pack"], PACKS_BY_NAME)
+                pack = PACKS_BY_NAME[lock["pack"]]
+                self.assertEqual(lock["lock_version"], 1)
+                self.assertEqual(
+                    len(lock["wheels"]),
+                    len(pack.pinned_python()),
+                    "one wheel per pinned distribution, not two for one",
+                )
+                self.assertEqual(
+                    {
+                        _normalised(name): version
+                        for name, version in pack.pinned_python().items()
+                    },
+                    {
+                        _normalised(wheel["distribution"]): wheel["version"]
+                        for wheel in lock["wheels"]
+                    },
+                )
+
+    def test_every_locked_wheel_is_a_distinct_file_with_a_pinned_hash(self) -> None:
+        for path, lock in self.locks():
+            filenames = [wheel["filename"] for wheel in lock["wheels"]]
+            with self.subTest(lock=path.name):
+                self.assertEqual(
+                    len(filenames),
+                    len(set(filenames)),
+                    "a lock names each wheel file once",
+                )
+                for wheel in lock["wheels"]:
+                    self.assertRegex(wheel["sha256"], r"^[0-9a-f]{64}$")
+
+    def test_the_lock_only_carries_wheels_its_interpreter_can_install(self) -> None:
+        """An sdist in the closure would make ``--only-binary`` fail offline."""
+
+        for path, lock in self.locks():
+            abi = lock["abi"]
+            with self.subTest(lock=path.name):
+                self.assertEqual(
+                    lock["platform"]["python"].replace(".", ""), abi[2:]
+                )
+                for wheel in lock["wheels"]:
+                    filename = wheel["filename"]
+                    self.assertTrue(
+                        filename.endswith(".whl"), filename
+                    )
+                    self.assertTrue(
+                        abi in filename
+                        or "abi3" in filename
+                        or "py3-none-" in filename
+                        or "py2.py3" in filename,
+                        f"{filename} is not installable on {abi}",
+                    )
 
 
 if __name__ == "__main__":

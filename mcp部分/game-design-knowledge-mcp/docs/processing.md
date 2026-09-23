@@ -87,7 +87,7 @@ run_pipeline(project_root, index_directory, retry_stages=["layout"])
 | 包 | 层次 | 可选 | 内容 | 声明规模 |
 |---|---|---|---|---|
 | `core` | core | 否 | OpenCV 几何、RapidOCR（ONNX Runtime）、项目自带 OOXML 解析 / SQLite-FTS / 原子发布 | 下载 ~420 MB，安装 ~1.15 GB |
-| `enhanced_ocr` | enhanced | 是 | PaddleOCR、PaddlePaddle、PaddleX / PP-StructureV3 | 下载 ~980 MB，安装 ~4.7 GB |
+| `enhanced_ocr` | enhanced | 是 | PaddleOCR 3.7.0、PaddleX 3.7.2 / PP-StructureV3、PaddlePaddle 3.3.1 | 下载 ~400 MB，安装 ~1.03 GB |
 | `visual` | visual | 是 | Ollama + Qwen2.5-VL 3B，仅做粗粒度图片解释 | 下载 ~3.2 GB，安装 ~3.4 GB |
 
 每个包都声明用途、许可证、CPU / 内存 / 磁盘下限、体积与空闲超时；`detect_pack()` 逐项检查并留下产生该结论的每一条 check。包状态到 stage 执行状态的映射只有一处（`PACK_TO_EXECUTION_STATUS`），保证降级上报不会和检测结果漂移：
@@ -122,6 +122,8 @@ tesseract (compatibility, V1 behaviour)
 `ModelStore` 只做三件事：从本地目录拷贝、按 pin 校验和验证、删除。类里没有任何下载路径，所以“不静默下载模型”是代码性质，不是文档承诺。安装前必须 `confirmed=True`，不确认只返回预览；校验和不符直接报错，不会写入。
 
 `visual` 包的模型 pin（运行时 / 模型 / 量化）随包发布，其 SHA256 就是对 `visual_model_pin_bytes()` 实际字节取的哈希。
+
+这条性质管的是**本项目**：它不下载、不代取。`enhanced_ocr` 的 PaddleOCR 是例外的一种形态——它在第一次构造 pipeline 时自己去官方源取模型文件（实测 7 个模型 192 MB，落在 `PADDLE_PDX_CACHE_HOME`），本项目既不 pin 这些文件也不代为获取，空气隔离的机器必须预先放好这棵缓存树。边界与实测见 [`capabilities.md`](capabilities.md) 第 8 节。
 
 完全离线的做法（预下载 wheel 与模型、bundle 校验、安装、卸载、Profile 资源预算与运行记录）见 [`capabilities.md`](capabilities.md)：那里把“本机能不能装”这件事独立成一次可复查的诊断，而不是散落在安装脚本里。
 

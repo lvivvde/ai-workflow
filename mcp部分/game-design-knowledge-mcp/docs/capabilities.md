@@ -4,7 +4,7 @@
 
 三条不变量贯穿全文：
 
-- **不联网**：本项目没有下载路径。安装只从本地离线包拷贝与安装，索引与查询期间也不访问网络。
+- **不联网**：本项目没有下载路径。安装只从本地离线包拷贝与安装，索引与查询期间也不访问网络。唯一的例外由引擎自己发起：`enhanced_ocr` 的 PaddleOCR 在第一次构造 pipeline 时去官方源取自己的模型文件，本项目既不代为下载也不 pin 这些文件（边界与实测见第 8 节）。
 - **版本锁定**：每个包的 Python 依赖与模型文件都按精确版本 + SHA256 固定，清单见 [`../capabilities/manifests`](../capabilities/README.md)。
 - **可选能力可删**：删掉任何可选能力只损失它提供的召回或转录，事实库、FTS5 与核心工具不受影响，也不需要重建索引。
 
@@ -13,7 +13,7 @@
 | 包 | 层次 | 可选 | 内容 | 声明体积 |
 |---|---|---|---|---|
 | `core` | core | 否 | OpenCV、RapidOCR（ONNX Runtime）+ 项目自带 OOXML / SQLite-FTS / 原子发布 | 下载 ~420 MB，安装 ~1.15 GB |
-| `enhanced_ocr` | enhanced | 是 | PaddleOCR、PaddlePaddle、PaddleX（PP-StructureV3） | 下载 ~980 MB，安装 ~4.7 GB |
+| `enhanced_ocr` | enhanced | 是 | PaddleOCR 3.7.0、PaddleX 3.7.2（PP-StructureV3）、PaddlePaddle 3.3.1 | 下载 ~400 MB（wheel 211 MB + 引擎模型 192 MB），安装 ~1.03 GB |
 | `visual` | visual | 是 | Ollama + Qwen2.5-VL 3B，只做粗粒度图片解释 | 下载 ~3.2 GB，安装 ~3.4 GB |
 
 `capabilities/manifests/<包名>.json` 是这些声明的固化副本（含每个 Python 依赖的精确版本、模型文件的相对路径与 SHA256）。它们由代码生成，测试逐字节比对，因此不能手工篡改：
@@ -21,6 +21,8 @@
 ```powershell
 uv run game-design-knowledge capability manifests --write capabilities\manifests
 ```
+
+`capabilities/locks/<包名>-<平台>-<ABI>.json` 记的是**一次真实解析的结果**：顶层 pin、解析出的完整 wheel 列表，以及每个 wheel 的 SHA256。清单里的闭包必须与 lock 逐条相同（测试比对），所以「pin 指向一个索引里不存在的版本」这类错误不必等到联网解析才暴露。换 pin 时先重新解析、再更新 lock、最后重新生成清单，三处必须一起动。
 
 ## 2. 离线包格式
 
@@ -158,6 +160,7 @@ uv run game-design-knowledge capability baseline --profile baseline --index-dir 
 | 进程退出 | 调用一次能力包后直接结束进程 | `atexit` 释放全部驻留，无残留后台进程 |
 | 磁盘不足 | 把模型仓库指到小容量卷后 `capability doctor` | 报 `disk_too_small` 并给出还差多少 GB，不尝试安装 |
 | 卸载可选能力 | `capability uninstall --pack visual --confirm` 后查询事实与词法 | `search_evidence` 结果不变，`index_status.is_stale` 仍为 `false` |
+| Enhanced OCR 闭包离线安装 | 只含 `enhanced_ocr` 的离线包：`capability verify` → `plan` → `install --confirm --apply-python` | 70 个 wheel 全带哈希装上（干净解释器实测 838 MB），`verify` 全项通过；引擎模型不在包内，见第 8 节 |
 
 ## 8. 排障
 
@@ -201,9 +204,15 @@ Windows 上有进程仍占用模型文件。关闭占用进程（例如仍在运
 
 解释器里没有 pip：`uv venv` 建的虚拟环境默认不装 pip，而离线安装的最后一步要由它执行 pip。先 `uv pip install pip`（或用带 pip 的解释器重跑），其它步骤不用重做——bundle、已写出的 requirements 与模型仓库都还在原处。
 
-### `enhanced_ocr` 装不上：pin 指向不存在的版本
+### `enhanced_ocr`：wheel 装得上，引擎模型要另行准备
 
-该包声明的 `paddlex==2.4.4` 在当前索引里不存在（只有 2.1.0 与 3.x），因此它的闭包无法解析，bundle 也就无法为它生成完整 requirements。这是 pin 的问题，不是操作问题：修它等于决定 Enhanced OCR 面向哪一代 PaddleOCR/PP-StructureV3，属于产品决策。`core` 与 `visual` 两个包的闭包已固定，可正常离线安装。
+这个包现在固定到 PaddleOCR 3.x 代际（`paddleocr==3.7.0`、`paddlex==3.7.2`、`paddlepaddle==3.3.1`），闭包 70 个 wheel 全部有 win_amd64/cp312 的二进制分发，`--only-binary :all: --require-hashes` 能一次装完。以下三条边界是**本机实测**的结果，不是推测：
+
+1. **引擎模型不在包里。** PaddleX 在第一次构造 pipeline 时解析并取自己的官方模型（实测 7 个模型、192 MB，落在 `PADDLE_PDX_CACHE_HOME`，默认 `~/.paddlex`）。本项目没有 pin 这些文件、也不替操作者下载，所以空气隔离的机器要预先放好这棵缓存树，否则第一次索引会在取模型这一步失败。这与 `visual` 包的处境同类：pip 侧完全离线，运行时模型由引擎自己管理。
+2. **与 `core` 同解释器只能字面满足一方。** `paddlex` 硬 pin `PyYAML==6.0.2` 而 `core` pin `6.0.3`，并且 `paddlex[ocr-core]` 带的是 `opencv-contrib-python` 而 `core` 带的是 `opencv-python`。两个包装进同一个解释器时，后装的一方覆盖前者，只有它的 pin 被字面满足。闭包检查读的是 bundle，从不读解释器里的已装集合，所以这件事必须写在这里而不是留给 `verify` 去猜。
+3. **pinned 运行时的 oneDNN 路径降不下这些模型。** `paddlepaddle==3.3.1` 在 oneDNN 路径上对 PP-OCRv4/v5/v6 一律抛 `ConvertPirAttribute2RuntimeAttribute not support [pir::ArrayAttribute<pir::DoubleAttribute>]`，因此适配器以 `enable_mkldnn=False` 构造 PaddleOCR：用一部分 CPU 速度换「引擎真的跑得起来」。
+
+真机验收记录（Windows 11 / AMD64 / CPython 3.12，2026-09）：`capability verify --pack enhanced_ocr` 逐条通过；离线 `pip install --no-index --only-binary=:all: --require-hashes` 在干净解释器装完 70 个 wheel（返回码 0，安装后 838 MB，`paddleocr` / `paddlex` / `paddle` 均可导入：3.7.0 / 3.7.2 / 3.3.1）；项目自己的适配器在该解释器里把随仓的四张语料图全部转录为 `succeeded`（`战斗流程` 6 个区域、`连招流程` 2 个、`结算流程` 4 个、`结算发奖流程` 2 个）。`core` 与 `visual` 两个包的闭包不受影响。
 
 ## 9. 与其他文档的关系
 

@@ -138,6 +138,12 @@ rapidocr (core, ONNX Runtime)
 
 RapidOCR 适配器要求模型文件**已经存在**于 `GAME_DESIGN_OCR_MODEL_DIR` 或包内 `models/*.onnx`；找不到就报 `models_missing` 并附上 `this build never downloads models`。适配器里没有任何下载路径——这是代码性质，不是文档承诺。
 
+PaddleOCR 适配器有三处与它的 2.x 时代不同的地方，都在 Windows 11 / AMD64 / CPython 3.12 上实跑过：
+
+- **语言码。** 项目按 Tesseract 的写法配置语言（默认 `chi_sim+eng`），PaddleOCR 有自己的集合：`ch` 才是「中文 + 拉丁字母」的那个模型，不存在 `chi`。适配器只翻译项目文档里支持的语言（`chi_sim`/`chi_tra`/`eng`/`jpn`/`kor`），其余原样传下去，让引擎自己报出它服务不了的语言，而不是换一门语言悄悄转写。
+- **oneDNN。** pinned 的 `paddlepaddle==3.3.1` 在 oneDNN 路径上对各个 PP-OCR 版本都抛 `ConvertPirAttribute2RuntimeAttribute not support [pir::ArrayAttribute<pir::DoubleAttribute>]`，所以适配器以 `enable_mkldnn=False` 构造 PaddleOCR；代价是 CPU 速度，换来的是引擎能跑。
+- **模型文件。** PaddleOCR 在构造 pipeline 时去官方源取自己的模型（落在 `PADDLE_PDX_CACHE_HOME`，默认 `~/.paddlex`）。这不是本项目发起的下载，但离线机器需要预先放好那棵缓存树，否则第一次索引会失败；`capabilities.md` 第 8 节记录了实测体积。
+
 其它环境变量：
 
 | 变量 | 作用 | 默认 |

@@ -5,6 +5,7 @@
 ```text
 capabilities/
 ├── manifests/          # 由 capabilities.py 生成的能力包清单（core / enhanced_ocr / visual）
+├── locks/              # 一次真实解析的记录：完整 wheel 闭包 + 每个 wheel 的 SHA256
 └── bundle.schema.json  # 离线安装包 bundle.json 的格式定义
 ```
 
@@ -19,6 +20,10 @@ uv run game-design-knowledge capability manifests --write capabilities\manifests
 ```
 
 测试会逐字节比对这三个文件与 `capabilities.py` 当前声明，任何漂移都会失败，所以"版本锁定"是仓库状态而不是文档承诺。
+
+## locks/
+
+`<包名>-<平台>-<ABI>.json` 记录该包闭包的**来源**：顶层 pin、解析出的每一个 wheel（发行版名、版本、文件名）以及文件的 SHA256，并在 `platform` 里写明是哪台机器、哪个解释器上解析的。有了它，"pin 指向一个索引里不存在的版本"这类错误就不再只能在联网解析时才发现：清单里的闭包必须与 lock 逐条相同，测试比对，多一个少一个都失败；只带 wheel 不带 sdist 也由测试保证，因为离线安装用 `--only-binary :all:`。
 
 ## bundle.schema.json
 

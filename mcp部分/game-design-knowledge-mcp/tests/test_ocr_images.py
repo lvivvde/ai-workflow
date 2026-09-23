@@ -30,6 +30,11 @@ from game_design_knowledge.ocr_regions import BoundingBox, OcrRegion, RegionObse
 from game_design_knowledge.pipeline import run_pipeline
 from game_design_knowledge.shared_index import index_status_for_database
 
+try:
+    from tests.host_stubs import no_ocr_engine_installed
+except ModuleNotFoundError:  # pragma: no cover - discover imports tests as modules
+    from host_stubs import no_ocr_engine_installed
+
 
 def rapidocr_observation(
     text: str = "等级上限 １００ 级",
@@ -314,13 +319,15 @@ class DegradationTests(ImageOcrTestCase):
     def test_the_compatibility_fallback_can_be_refused(self) -> None:
         write_png(self.root / "screens" / "a.png")
 
-        report = index_documents(
-            self.root,
-            self.index_directory,
-            ocr_engine="rapidocr",
-            ocr_providers={"tesseract": lambda path: rapidocr_observation()},
-            allow_compatibility_fallback=False,
-        )
+        # Only the compatibility tier could answer here, and it is switched off.
+        with no_ocr_engine_installed():
+            report = index_documents(
+                self.root,
+                self.index_directory,
+                ocr_engine="rapidocr",
+                ocr_providers={"tesseract": lambda path: rapidocr_observation()},
+                allow_compatibility_fallback=False,
+            )
 
         self.assertEqual(report["ocr_unavailable"], 1)
         connection = self.connect()
@@ -460,11 +467,14 @@ class PipelineOcrTests(ImageOcrTestCase):
         write_docx(self.root / "docs" / "a.docx", "hello")
         write_png(self.root / "screens" / "a.png")
 
-        run = run_pipeline(
-            self.root,
-            self.index_directory,
-            ocr_providers={"rapidocr": lambda path: rapidocr_observation(second=None)},
-        )
+        # With no engine installed the run reports the whole chain as walked and
+        # unavailable, while the injected provider still produces the regions.
+        with no_ocr_engine_installed():
+            run = run_pipeline(
+                self.root,
+                self.index_directory,
+                ocr_providers={"rapidocr": lambda path: rapidocr_observation(second=None)},
+            )
 
         ocr = run.history["ocr"][-1]
         self.assertEqual(

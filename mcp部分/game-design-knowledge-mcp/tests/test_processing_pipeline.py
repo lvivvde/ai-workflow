@@ -37,6 +37,11 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - discover imports tests as modules
     from document_fixtures import png_bytes, write_docx_with_image
 
+try:
+    from tests.host_stubs import no_ocr_engine_installed
+except ModuleNotFoundError:  # pragma: no cover - discover imports tests as modules
+    from host_stubs import no_ocr_engine_installed
+
 from game_design_knowledge.flow_notation import CLAIM_BOUNDARY
 from game_design_knowledge.ocr import OcrEngine
 from game_design_knowledge.ocr_regions import (
@@ -227,7 +232,10 @@ class StagedProcessingTests(unittest.TestCase):
                 Path(temporary_directory), "每日开放5次"
             )
 
-            run = run_pipeline(project_root, index_directory)
+            # The optional capability is missing on this machine: no OCR engine
+            # is installed, so every stage that depends on it has to say so.
+            with no_ocr_engine_installed():
+                run = run_pipeline(project_root, index_directory)
 
             # V2-05 delivered the layout layer, so this is no longer a declared
             # placeholder. With no OCR engine there are no regions to order, and

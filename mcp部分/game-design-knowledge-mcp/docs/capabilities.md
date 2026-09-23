@@ -63,6 +63,8 @@ uv run game-design-knowledge capability manifests --write capabilities\manifests
 
 包内声明必须与本构建的 pin 完全一致：少一个 wheel、多一个 wheel、版本不同、模型文件哈希不同都属于 `bundle_pin_mismatch`，会被拒绝而不是"尽力安装"。
 
+**bundle 必须携带整个 wheel 闭包。** 清单里的 `python_artifacts` 是包负责的东西（有归属、会随卸载列出），`python_dependencies` 是它们运行所需的传递依赖（有 pin，但不归这个包所有，也不随卸载移除）。离线安装的最后一步是 `pip install --no-index ... --require-hashes`，hash-checking 模式要求**每一个要安装的 distribution** 都带着哈希出现在 requirements 里，所以闭包必须一起声明、一起携带、一起校验：少一个成员，安装会在中途失败；多一个没声明的 wheel，`verify` 会拒绝。requirements 文件由 bundle 的 `wheels` 逐条生成，因此"装上一个包"意味着"装完它声明的整个闭包"。
+
 ## 3. 从离线包安装
 
 把离线包拷到目标机器后按下面顺序执行（示例为 `visual`，替换 `--pack` 即可装 `core` 或 `enhanced_ocr`）：
@@ -90,6 +92,8 @@ uv run game-design-knowledge capability verify --bundle D:\offline\gdk-bundle --
 - 安装必须带 `--confirm`；不带时只返回 `confirmation_required` 预览。
 - 离线 pip 命令固定为 `pip install --no-index --find-links <bundle>\wheels\<包名> --only-binary :all: --require-hashes -r <模型仓库>\<包名>\offline-requirements.txt`，没有任何可回退到网络的选项。
 - 平台或 Python 不匹配（例如把 `windows`/`AMD64`/`3.12` 的包装到别的平台或 3.11）会报 `bundle_platform_mismatch` / `bundle_python_mismatch` 并停止。
+
+- `--apply-python` 用当前解释器执行上面那条 pip 命令。`uv venv` 建出来的虚拟环境默认**不带 pip**：`capability plan` 仍是 `ready`，安装则会如实返回 `python_install_failed`；补救见第 8 节的 `python_install_failed` 条目。
 
 ## 4. 卸载
 
@@ -191,7 +195,15 @@ Windows 上有进程仍占用模型文件。关闭占用进程（例如仍在运
 
 ### 构建期报模型缺失（`models_missing`）
 
-RapidOCR 的 ONNX 模型必须已经在本地：放到 `GAME_DESIGN_OCR_MODEL_DIR` 或包内 `models/`（见 [`ocr.md`](ocr.md)）。本项目在任何阶段都不会下载模型。
+当前 pin 的 `rapidocr-onnxruntime==1.3.24` 自带 ONNX 模型，`core` 包因此不声明任何 `model_artifacts`：装上 wheel 就能转录，不需要再放模型文件（这一点由 Windows 实跑确认）。只有当引擎自己的模型文件确实不在（例如安装被裁剪、或 `GAME_DESIGN_OCR_MODEL_DIR` 指到空目录）才会报 `models_missing`，见 [`ocr.md`](ocr.md)。本项目在任何阶段都不会下载模型。
+
+### `python_install_failed`（`No module named pip`）
+
+解释器里没有 pip：`uv venv` 建的虚拟环境默认不装 pip，而离线安装的最后一步要由它执行 pip。先 `uv pip install pip`（或用带 pip 的解释器重跑），其它步骤不用重做——bundle、已写出的 requirements 与模型仓库都还在原处。
+
+### `enhanced_ocr` 装不上：pin 指向不存在的版本
+
+该包声明的 `paddlex==2.4.4` 在当前索引里不存在（只有 2.1.0 与 3.x），因此它的闭包无法解析，bundle 也就无法为它生成完整 requirements。这是 pin 的问题，不是操作问题：修它等于决定 Enhanced OCR 面向哪一代 PaddleOCR/PP-StructureV3，属于产品决策。`core` 与 `visual` 两个包的闭包已固定，可正常离线安装。
 
 ## 9. 与其他文档的关系
 

@@ -13,6 +13,8 @@
 - `test_v1_contract.py`：直接对运行中的 MCP 服务比对 `src/game_design_knowledge/v1_contract.py` 冻结的 V1 契约（工具名、参数默认值、逐状态响应字段、定位字段），并验证读工具的 `index_status.is_stale` 与写工具的预览/应用字段集。
 - `test_evaluation_harness.py`：为五条 Release-blocking invariant 各写一个注入违规的负例，另覆盖网络封锁、语料指纹、冻结语料、双人标注协议、`review_seeds` 复现、以及「已测量的层必须点名支撑它的样本」，并跑通整套评测。
 
+`host_stubs.py` 提供「这台机器上没有 OCR 引擎」这类夹具：进程内的测试替换引擎唯一的宿主机探针 `OcrEngine.installed`，CLI / MCP 的子进程测试则用 `-S`（不带 site-packages）与空 `PATH` 表达同一台机器。凡断言降级路径的测试都必须自带这台机器的描述——否则断言的是开发者本机装了什么，而不是产品行为。
+
 V2-12 评测语料与发布门槛的回归测试：
 
 - `test_evaluation_gates.py`：指标取值形状（比率 / P-R-F1 三元组 / 覆盖率）、绝对下限与上限的通过和失败、`unavailable` 归环境类、样本不足与指标未发布归标注类、模式过滤逐模式判定、相对回退限制（无基线时不判定、小幅回退通过、超过允许跌幅失败、基线没有该模式时归数据类）、门槛文件校验（缺文件、空 gates、缺边界、未知 error_class、非数字边界、往返序列化）、错误分类表与 10 层一一对应、提交的 `quality-gates.json` 只点名词表里真实发布的指标，以及 `tools/evaluate.py` / `tools/judge_gates.py` 两个入口的退出码、错误分类输出与 `--baseline` 回显。

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 import os
 from pathlib import Path
@@ -328,26 +329,41 @@ class ModelResidencyTests(unittest.TestCase):
         )
         runtime.loader = lambda pack: loads.append(pack.name) or TrackingHandle()
 
-        runtime.acquire("core")
-        self.assertEqual(len(loads), 1)
-        runtime.acquire("core")
-        self.assertEqual(len(loads), 1, "an unchanged status reuses the loaded handle")
-
         from game_design_knowledge import capabilities as module
 
         original = module.detect_pack
 
-        def available(*args, **kwargs):
-            status = original(*args, **kwargs)
-            return module.PackStatus(
-                **{
-                    **status.__dict__,
-                    "status": "available",
-                    "execution_status": "succeeded",
-                }
-            )
+        def declare(status_name: str):
+            """The real detection result, reported under a forced status."""
 
-        module.detect_pack = available
+            def patched(*args, **kwargs):
+                status = original(*args, **kwargs)
+                return module.PackStatus(
+                    **{
+                        **status.__dict__,
+                        "status": status_name,
+                        "execution_status": PACK_TO_EXECUTION_STATUS[status_name],
+                    }
+                )
+
+            return patched
+
+        # Both halves are forced so the test says the same thing on a machine
+        # that happens to have the core pack installed and on one that does not.
+        # "degraded" is the usable-but-incomplete core pack: resident, and then
+        # dropped the moment the status it was loaded under stops being true.
+        module.detect_pack = declare("degraded")
+        try:
+            runtime.acquire("core")
+            self.assertEqual(len(loads), 1)
+            runtime.acquire("core")
+            self.assertEqual(
+                len(loads), 1, "an unchanged status reuses the loaded handle"
+            )
+        finally:
+            module.detect_pack = original
+
+        module.detect_pack = declare("available")
         try:
             runtime.acquire("core")
         finally:
@@ -371,33 +387,82 @@ class ModelResidencyTests(unittest.TestCase):
         )
 
 
+def _engine_absent_from_this_machine(engine: OcrEngine) -> OcrEngine:
+    """The same engine, on a machine where its distribution was never installed."""
+
+    return replace(engine, module=f"absent_{engine.name}_distribution", executable="")
+
+
 class OcrDegradationChainTests(unittest.TestCase):
     def test_the_chain_records_every_engine_it_considered(self) -> None:
-        selection = select_engine()
-
-        self.assertEqual([engine.name for engine in DEFAULT_CHAIN], ["rapidocr", "paddleocr", "tesseract"])
         self.assertEqual(
-            [entry["engine"] for entry in selection.chain], ["rapidocr", "paddleocr", "tesseract"]
+            [engine.name for engine in DEFAULT_CHAIN],
+            ["rapidocr", "paddleocr", "tesseract"],
+            "the documented degradation order",
+        )
+
+        # No engine installed: the walk considers all three and records why
+        # each one was skipped.
+        selection = select_engine(
+            tuple(_engine_absent_from_this_machine(engine) for engine in DEFAULT_CHAIN)
+        )
+
+        self.assertIsNone(selection.engine)
+        self.assertEqual(
+            [entry["engine"] for entry in selection.chain],
+            ["rapidocr", "paddleocr", "tesseract"],
+            "every engine the walk considered is recorded, in order",
         )
         payload = selection.as_payload()
         self.assertIn("execution_status", payload)
         self.assertIn("fallback_used", payload)
+        self.assertEqual(payload["execution_status"], "unavailable")
+        self.assertEqual(payload["reason_code"], "no_usable_engine")
+        self.assertFalse(payload["fallback_used"])
         for entry in payload["chain"]:
             self.assertIn("usable", entry)
             self.assertIn("detail", entry)
+            self.assertFalse(entry["usable"])
+            self.assertIn("not installed", entry["detail"])
+
+    def test_the_walk_stops_at_the_first_engine_that_can_answer(self) -> None:
+        ready = replace(DEFAULT_CHAIN[0], module="json")
+
+        selection = select_engine((ready, *DEFAULT_CHAIN[1:]))
+
+        self.assertIs(selection.engine, ready)
+        self.assertEqual(
+            [entry["engine"] for entry in selection.chain],
+            ["rapidocr"],
+            "engines below a usable one are never probed",
+        )
+        self.assertEqual(selection.execution_status, "succeeded")
+        self.assertEqual(selection.reason_code, "")
+        self.assertFalse(selection.fallback_used)
 
     def test_the_compatibility_fallback_can_be_switched_off_explicitly(self) -> None:
-        selection = select_engine(allow_compatibility_fallback=False)
-
-        if selection.engine is None:
-            self.assertEqual(selection.reason_code, "no_usable_engine")
-        self.assertNotEqual(selection.engine, TESSERACT_ENGINE)
-        entry = next(
-            item for item in selection.chain if item["engine"] == "tesseract"
+        # The only engine left is the compatibility tier.
+        chain = (
+            _engine_absent_from_this_machine(DEFAULT_CHAIN[0]),
+            _engine_absent_from_this_machine(DEFAULT_CHAIN[1]),
+            replace(TESSERACT_ENGINE, module="json", executable=""),
         )
-        if entry["available"]:
-            self.assertFalse(entry["usable"])
-            self.assertIn("disabled by configuration", entry["detail"])
+
+        refused = select_engine(chain, allow_compatibility_fallback=False)
+
+        self.assertIsNone(refused.engine, "a lower tier must not be used silently")
+        self.assertNotEqual(refused.engine, TESSERACT_ENGINE)
+        self.assertEqual(refused.reason_code, "no_usable_engine")
+        entry = next(item for item in refused.chain if item["engine"] == "tesseract")
+        self.assertTrue(entry["available"])
+        self.assertFalse(entry["usable"])
+        self.assertIn("disabled by configuration", entry["detail"])
+
+        allowed = select_engine(chain)
+        self.assertIs(allowed.engine, chain[2])
+        self.assertTrue(
+            allowed.fallback_used, "the compatibility answer is named as a fallback"
+        )
 
     def test_an_unimplemented_engine_is_never_reported_as_ready(self) -> None:
         declared = OcrEngine(

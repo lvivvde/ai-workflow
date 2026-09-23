@@ -15,6 +15,11 @@ from mcp import Client
 
 from game_design_knowledge.indexer import SCHEMA_VERSION
 
+try:
+    from tests.host_stubs import OCR_FREE_INTERPRETER_FLAGS, ocr_free_environment
+except ModuleNotFoundError:  # pragma: no cover - discover imports tests as modules
+    from host_stubs import OCR_FREE_INTERPRETER_FLAGS, ocr_free_environment
+
 
 PNG_BYTES = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
@@ -167,12 +172,10 @@ class GetImageContextMcpTests(unittest.TestCase):
     @staticmethod
     def _index(source_dir: Path, output_dir: Path) -> None:
         project_root = Path(__file__).resolve().parents[1]
-        environment = os.environ.copy()
-        environment["PYTHONPATH"] = str(project_root / "src")
-        environment["PATH"] = ""
         completed = subprocess.run(
             [
                 sys.executable,
+                *OCR_FREE_INTERPRETER_FLAGS,
                 "-m",
                 "game_design_knowledge.cli",
                 "index",
@@ -181,7 +184,7 @@ class GetImageContextMcpTests(unittest.TestCase):
                 str(output_dir),
             ],
             cwd=project_root,
-            env=environment,
+            env=ocr_free_environment(project_root),
             capture_output=True,
             text=True,
             encoding="utf-8",

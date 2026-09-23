@@ -398,10 +398,22 @@ class EvaluationRunTests(unittest.TestCase):
 
         statuses = {layer.status for layer in run.layer_results}
         self.assertIn("measured", statuses)
-        self.assertIn("unavailable", statuses)
         covered = {(layer.layer, layer.mode) for layer in run.layer_results}
         self.assertIn(("retrieval", "component"), covered)
         self.assertIn(("retrieval", "e2e"), covered)
+
+        # Whether a layer is unavailable depends on the machine (an OCR engine
+        # may or may not be installed), but an unavailable layer must always
+        # say why instead of quietly passing.
+        for layer in run.layer_results:
+            if layer.status != "unavailable":
+                continue
+            with self.subTest(layer=layer.layer, mode=layer.mode):
+                self.assertTrue(
+                    layer.notes,
+                    f"{layer.layer}@{layer.mode} is unavailable and explains "
+                    "nothing",
+                )
 
         ocr = [
             layer
@@ -409,7 +421,9 @@ class EvaluationRunTests(unittest.TestCase):
             if layer.layer == "ocr_transcription"
         ]
         self.assertTrue(ocr)
-        self.assertTrue(all(layer.notes for layer in ocr))
+        self.assertTrue(
+            all(layer.status in {"measured", "unavailable"} for layer in ocr)
+        )
 
         report = render_markdown(
             run_id=run.run_id,

@@ -4,7 +4,9 @@
   "license": "Apache-2.0 (PaddleOCR, PaddleX)",
   "model_artifacts": [],
   "name": "enhanced_ocr",
-  "notes": [],
+  "notes": [
+    "This pack's Python closure is not pinned yet: the declared paddlex==2.4.4 does not exist on the index, so the closure cannot be resolved and a bundle cannot install this pack offline. Correcting the pin is a PaddleOCR generation decision, not a mechanical fix."
+  ],
   "optional": true,
   "purpose": "PaddleOCR and PP-StructureV3 for difficult OCR and richer layout analysis.",
   "python_artifacts": [
@@ -27,6 +29,7 @@
       "version": "2.4.4"
     }
   ],
+  "python_dependencies": [],
   "requirements": {
     "cpu_cores": 8,
     "free_disk_gb": 10.0,

@@ -11,6 +11,7 @@ import unittest
 from unittest import mock
 
 from game_design_knowledge.capabilities import (
+    CORE_PACK,
     PACKS,
     PACKS_BY_NAME,
     VISUAL_MODEL_PIN_PATH,
@@ -67,6 +68,8 @@ class BundleBuilder:
         if with_wheels:
             for artifact in spec.python_artifacts:
                 self.add_wheel(pack, artifact.distribution, artifact.version)
+            for dependency in spec.python_dependencies:
+                self.add_wheel(pack, dependency.distribution, dependency.version)
         for artifact in spec.model_artifacts:
             self.add_model(pack, artifact.relative_path)
         return self
@@ -204,6 +207,86 @@ class OfflineBundleTests(unittest.TestCase):
 
         self.assertEqual(report["reason"], BUNDLE_PIN_MISMATCH)
         self.assertIn("some-other-package", report["detail"])
+
+    def test_a_missing_dependency_wheel_is_a_broken_bundle(self) -> None:
+        """A pack carries its closure, so an incomplete closure is refused."""
+
+        builder = BundleBuilder(self.workspace / "bundle").add_pack("core")
+        missing = CORE_PACK.python_dependencies[0].distribution
+        entry = builder.packs["core"]
+        entry["wheels"] = [  # type: ignore[union-attr]
+            wheel
+            for wheel in entry["wheels"]  # type: ignore[union-attr]
+            if wheel["distribution"] != missing
+        ]
+
+        report = builder.write().verify("core")
+
+        self.assertEqual(report["status"], "incomplete")
+        self.assertEqual(report["reason"], BUNDLE_PIN_MISMATCH)
+        self.assertIn(missing, report["detail"])
+
+    def test_an_undeclared_transitive_wheel_is_still_refused(self) -> None:
+        builder = BundleBuilder(self.workspace / "bundle").add_pack("core")
+        builder.add_wheel("core", "some-transitive-package", "9.9.9")
+
+        report = builder.write().verify("core")
+
+        self.assertEqual(report["reason"], BUNDLE_PIN_MISMATCH)
+        self.assertIn("some-transitive-package", report["detail"])
+
+    def test_the_requirements_cover_every_wheel_the_bundle_carries(self) -> None:
+        """Hash-checking mode installs the closure, so the closure is listed."""
+
+        bundle = self._bundle("core")
+        entry = bundle.entry("core")
+        requirements = bundle.requirements("core")
+
+        for wheel in entry["wheels"]:
+            self.assertIn(
+                f"{wheel['distribution']}=={wheel['version']} "
+                f"--hash=sha256:{wheel['sha256']}",
+                requirements,
+            )
+
+    def test_the_core_pack_pins_the_closure_rapidocr_imports(self) -> None:
+        pinned = CORE_PACK.pinned_python()
+
+        self.assertLessEqual(
+            {
+                "numpy",
+                "opencv-python",
+                "shapely",
+                "pyclipper",
+                "pyyaml",
+                "pillow",
+                "six",
+                "coloredlogs",
+                "flatbuffers",
+                "protobuf",
+                "sympy",
+                "onnxruntime",
+                "rapidocr-onnxruntime",
+            },
+            set(pinned),
+        )
+        artifact = next(
+            entry
+            for entry in CORE_PACK.python_artifacts
+            if entry.distribution == "rapidocr-onnxruntime"
+        )
+        self.assertEqual(pinned["rapidocr-onnxruntime"], artifact.version)
+
+    def test_a_pack_does_not_own_its_dependencies(self) -> None:
+        """Dependencies ride along; they are not the pack's to remove."""
+
+        for pack in PACKS:
+            owned = {artifact.distribution for artifact in pack.python_artifacts}
+            declared = {
+                dependency.distribution for dependency in pack.python_dependencies
+            }
+            with self.subTest(pack=pack.name):
+                self.assertEqual(owned & declared, set())
 
     def test_a_model_the_build_does_not_pin_is_refused(self) -> None:
         builder = BundleBuilder(self.workspace / "bundle").add_pack("visual")

@@ -163,7 +163,7 @@
 - `expected.response_state` 不在允许状态内，或 `allowed_answer_set` 不是字符串列表；
 - 高风险样本缺少第二名标注者或第三方裁决；
 - 文档路径越出语料目录（绝对路径、盘符、`..`）；
-- 图片资源缺失、不是 PNG、越出语料目录，或字节与 `asset_sha256` 不符；
+- 图片资源缺失、不是 PNG、越出语料目录、字节与 `asset_sha256` 不符，或只给了 `asset_sha256` 没有 `asset`（此时图片会悄悄退回占位图）；
 - `manifest.sample_fingerprints` 与样本内容不一致（样本改过就要 `--refresh-manifest`）；
 - `review_seeds` 里缺 `action`。
 

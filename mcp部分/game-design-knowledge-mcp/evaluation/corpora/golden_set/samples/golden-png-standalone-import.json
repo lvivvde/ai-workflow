@@ -31,7 +31,7 @@
   "annotation": {
     "annotators": ["synthetic-pass-a", "synthetic-pass-b"],
     "adjudicated": true,
-    "guide_version": "eval-guide-0.1"
+    "guide_version": "eval-guide-0.2"
   },
   "modes": ["component", "e2e"],
   "capabilities": ["core", "visual"],

@@ -1,10 +1,10 @@
 {
   "name": "v1_compatibility",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "split": "v1_compatibility",
   "frozen": false,
-  "guide_version": "eval-guide-0.1",
-  "description": "合成语料，用于冻结 V1 MCP 工具的默认请求、响应字段、来源定位和冲突保留行为。所有内容均为合成，不含真实策划材料。",
+  "guide_version": "eval-guide-0.2",
+  "description": "合成语料，用于冻结 V1 MCP 工具的默认请求、响应字段、来源定位和冲突保留行为。所有内容均为合成，不含真实策划材料。0.2.0 只把标注协议版本抬到 eval-guide-0.2，标签内容未改动，指纹随协议版本一起刷新。",
   "documents": {
     "活动系统.docx": {
       "kind": "docx",
@@ -148,15 +148,15 @@
     }
   },
   "sample_fingerprints": {
-    "v1-catalog-canonical": "5c4452616aad476f375b86eb99e5537fdc432e83e9d7b7d26176a90b1ee044e7",
-    "v1-catalog-unknown-name": "c158c31587a7cf4254c4d28faf5e053b73ae287dc098a116679b7dfecee84cd3",
-    "v1-docx-conflict-preserved": "e73a08f07e6e6ea9de5745d61cda007a1bd5948d5dc4ba130c1fa73db62b5e6f",
-    "v1-docx-image-context": "18c1e5e85b9c9b709962aee6e864653f8c67691ac9ef0cf79ec220a1e4a3bc2a",
-    "v1-docx-list-item-locator": "fbfefd4a34e989f4b265af27bc87a5d2042066c26ab931d039a6bd45f67a520f",
-    "v1-docx-not-found": "57ad584d056eb8037c79a5f68b76dacd43fce1a11f3a1ad1e722e30c40efca2e",
-    "v1-docx-paragraph-locator": "d7e4491fda881e2ebf74d831e81d32f616f7a996a4a1925cb98e46a06e5ae66c",
-    "v1-docx-table-cell-locator": "39f24b67beda89e17778c534849b8efd704dfe75717b64618d47c9bbb0b26499",
-    "v1-xlsx-cell-locator": "f786be91d61e03910cba04bbea9f6cd2bff5b6f9abf95a057ef2f0d00e806b27",
-    "v1-xlsx-sheet-range": "8ac782aa0fd956b4145aa13953d300171435d1aeeadf63e2e49c2bcd9b3dd2af"
+    "v1-catalog-canonical": "a0c7f7e7149b8538ab722050e9939545782c98ba9f9abcb5bee21f37bee806fd",
+    "v1-catalog-unknown-name": "d41672c1a0c0efc6b6599c26714e0ad894c3c00789277d0ec1d98b2bfe75353b",
+    "v1-docx-conflict-preserved": "09481b454c6e510275a4025b9c5a8d538749636d510f60c50ea00b0e7d4343b5",
+    "v1-docx-image-context": "fa77bc020060f874abb240c7881ab4a7047a6e0241fa83557df054653e6a7741",
+    "v1-docx-list-item-locator": "d961067e7672be1e7423eef987405a0374e26e781746e94bcd4e1fb2aadcfcca",
+    "v1-docx-not-found": "d3220bd6c1d0feb2be58d345942de14ec75ae5eb9e1fb3b0f5bce8b104b65634",
+    "v1-docx-paragraph-locator": "bd23b762b34350616339b0df8576e0ffc4fd05013752358ec6c3a5a4d5f120e5",
+    "v1-docx-table-cell-locator": "43b40746afa5ca734ecf68bc220b254899dfcdec298b8aee30a9e5268cb44438",
+    "v1-xlsx-cell-locator": "4931b4862a2a9de0afda18db1df9c8d491b717fb0e8d609f81d19135b8c4073e",
+    "v1-xlsx-sheet-range": "07670314b22cc2059b37341c6d7662938c2984b4aaf5652eea57c93bb2eca8dd"
   }
 }

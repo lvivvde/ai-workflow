@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- 把标注协议抬到 **`eval-guide-0.2`**：上一版给语料换图时改了标注规则（指南第 11 节）也改了标签，却没有动 `guide_version`，而 `annotation-guide.md` 自己写着「规则一改就要升版本，并让所有语料重新刷新指纹，因为旧报告的标签已经不是同一套标签」。现在指南、三份 manifest（`v1_compatibility@0.2.0`、`development_set@0.3.0`、`golden_set@0.4.0`）与全部 32 条样本的 `annotation.guide_version` 一致为 `eval-guide-0.2`，指纹随之刷新；标签内容本身没有再改，所以三层指标与上一版一致。
 - 随仓语料的图片换成**像素里真有字**的合成图（`development_set@0.2.0`、`golden_set@0.3.0`）：此前图片文档一律写 1x1 占位图，标注只说明"这张图本该写什么"，于是 `ocr_transcription` / `layout_regions` / `reading_order_relations` 三层在装有引擎的机器上也只能报 `unavailable`。换上真图后三层首次有分母，三档基线里这三层的 environment 类失败随之消失（实测 `cer=0.0`、`critical_token_coverage=1.0`、区域完整率 10/10、`annotated_relation_scores=1.0`）。Golden Set 已冻结，这次按 `--force` 改版并作废此前报告里这三层的结论。
 - 图片文档改用**语料自带的资产**：`generator.asset` + `asset_sha256`（独立 PNG 与 DOCX 内嵌图片都支持），物化时逐字节核对，缺图、不是 PNG、越出语料目录、哈希漂移都报 `SchemaError`，图像与标注不会再无声地各说各话；图片由开发期工具 `tools/render_corpus_assets.py` 渲染（`--check` 只比对不写盘），评测本身仍只用标准库。
 - 记录并固化**语料构造约束**：本机实测（Windows 11 / RapidOCR 1.3.24，30 多种渲染）里只有「独占一行的重复上箭头」能被转写成独立箭头块，单个箭头、向下箭头与被丢弃的横向箭头都拿不到区域，因此语料只画自下而上的流程链——`transcription` 记画面自上而下的阅读顺序，`relations` 记箭头方向（下方块 → 上方块），只有行内箭头的图不标关系。规则与实测表见 `evaluation/annotation-guide.md §11`，引擎侧的字形缺陷单独立工单跟踪。代价要说清楚：两条内嵌图片样本（`dev-docx-embedded-image-flow`、`golden-docx-embedded-image-text`）的箭头画在行内，只标转写与区域、不再标 `relations`，所以关系层现在由两份独立图片样本度量（2 样本 / 3 条关系），「内嵌图片产关系」这条路径本轮没有观测。

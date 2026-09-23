@@ -1,10 +1,10 @@
 {
   "name": "development_set",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "split": "development",
   "frozen": false,
-  "guide_version": "eval-guide-0.1",
-  "description": "可修改的开发集：用于调试、错误分析和回归定位。样本全部为合成内容，不含真实策划材料。0.2.0 起图片文档引用 assets/ 下已提交的合成 PNG，像素里真的有标注的字符，OCR / 布局 / 箭头规则才有东西可观测。",
+  "guide_version": "eval-guide-0.2",
+  "description": "可修改的开发集：用于调试、错误分析和回归定位。样本全部为合成内容，不含真实策划材料。0.2.0 起图片文档引用 assets/ 下已提交的合成 PNG，像素里真的有标注的字符，OCR / 布局 / 箭头规则才有东西可观测。0.3.0 只把标注协议版本抬到 eval-guide-0.2（图片语料规则写进指南第 11 节），标签内容未再改动，指纹随协议版本一起刷新。",
   "documents": {
     "玩法说明.docx": {
       "kind": "docx",
@@ -163,18 +163,18 @@
     }
   ],
   "sample_fingerprints": {
-    "dev-conflict-challenge-counts": "7b23fedfdb9018658f4091b167774cb143474ab4350ab031cc550a798d2f6076",
-    "dev-degraded-embedded-image": "420950e78190d22f0a245ffdc259854db7a66b005e10371d231042fe50c5abdf",
-    "dev-docx-embedded-image-flow": "6b79c82cf1992ad4afec5a22e6e2bc369ad047347e27cc6d898eee41eb64a10a",
-    "dev-docx-heading-path": "12a989f2bb75a3001e4d4ca0970b0329e1ef24ee56b3f16d4196a4f9e1e82c06",
-    "dev-docx-list-item": "29d89eba7017656adbf033510bcc628d93a26b869c17329e5c58fc535cf6f80a",
-    "dev-en-docx-cooldown": "2d7658c9b24087b21db5e27bbb923a33bebaa2b9587b3b4e385cef046b8d189f",
-    "dev-explanation-daily-tasks": "3ed5cb51cdfe768bf2810d9f3b918c1f245867a1432c7100cefcdd2238d31747",
-    "dev-no-answer": "94de67f81101af4b6e6083ae21b85736ad6f999db186b6bae4d4ee605c8bcc84",
-    "dev-notation-confirmed-arrow": "f4e36402731c48ae8d9ca9e53e2343fdf70d0ac82d8e589b50011fd804be7c98",
-    "dev-notation-unknown": "b34fcabe402df543e0eaf5a3add64b963ee71eeefc93dff2923cab815352e4b1",
-    "dev-notation-unknown-token": "dd049ad630905fc7130319b327656e0ce1e7a808de1c58cf9756368c38537b60",
-    "dev-png-standalone-import": "268ea1a022f17552b9cfedbfa8b730ec27a243e5fd7f677e11f2c9b68cfd5290",
-    "dev-xlsx-value": "18741c4473d5a2a42a0950edbc22d1673405d15c57ef75c7d029a1d5e26387cd"
+    "dev-conflict-challenge-counts": "f4824f5827bfde01019e6d2f7ae2004798b95429fdf6916b9d8e4d5a58e2dc61",
+    "dev-degraded-embedded-image": "62f5e33138d3d6aa3725d5b61b236b1371f39fdb5d71ea8f13d74812e828d8a3",
+    "dev-docx-embedded-image-flow": "c1048a986aee4639fd9d0e8a0f7853704c2a27a2c596a0c8ac3855a28f5bc56e",
+    "dev-docx-heading-path": "dcd48d0ad005427f40248ac253b0aaeeca5180f92c3c216fad9048e86e9ed706",
+    "dev-docx-list-item": "12cc932f867069f4b210e8b026b765e158731a17fc0d35cac3d2ffe899e19806",
+    "dev-en-docx-cooldown": "fea84684c5cb86f1a3f2daf79dec0377975d9bafd54d07f4df069dbfe21b3112",
+    "dev-explanation-daily-tasks": "b73939b7c620f09ff23db02ffdb35daded43b01ef38feee89804a8a6b933d457",
+    "dev-no-answer": "502c5b1829b6743d9c9558962a52f3acd3c23b0abf3e4d0d5f49d44a65e19e96",
+    "dev-notation-confirmed-arrow": "9cfc37962b71145a2fabc46211079f9965794424c0b36c3594b8983fd6a4dbb3",
+    "dev-notation-unknown": "4572d02ae3cc79762ff1875a685696df3a70361aa7f3eb9ae19e8daa11ffb758",
+    "dev-notation-unknown-token": "e81de1e19b6e93ece3e19da5a77159e396e1cc8f5f289719db0ac7af04f495cf",
+    "dev-png-standalone-import": "bf0b2b795b740ae0def9691be3e4d7b3eba6f05a1895fe06bcdf53994202dd23",
+    "dev-xlsx-value": "949fc4599733c1e3fb8a3bad31671ced90a43ef3d191e6e0e1e75013d684df17"
   }
 }

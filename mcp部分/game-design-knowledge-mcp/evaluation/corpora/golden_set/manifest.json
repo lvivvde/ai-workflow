@@ -1,10 +1,10 @@
 {
   "name": "golden_set",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "split": "golden",
   "frozen": true,
-  "guide_version": "eval-guide-0.1",
-  "description": "冻结的 held-out 合成语料（覆盖文档、表格、内嵌与独立图片、中英文、箭头记法、冲突、无答案与降级档位）。0.3.0 把图片换成语料自带 assets/ 下的合成 PNG，并同步校正转写与关系标注：0.2.0 的图片是 1x1 占位图，OCR / 布局 / 关系三层从未被判定过，因此这一版按 force 改版，此前质量报告里这三层的结论一律作废。标签一旦冻结就不得修改；修改必须显式 force 并作废此前所有质量报告。真实私有语料只存在于本地受控评测仓。",
+  "guide_version": "eval-guide-0.2",
+  "description": "冻结的 held-out 合成语料（覆盖文档、表格、内嵌与独立图片、中英文、箭头记法、冲突、无答案与降级档位）。0.3.0 把图片换成语料自带 assets/ 下的合成 PNG，并同步校正转写与关系标注：0.2.0 的图片是 1x1 占位图，OCR / 布局 / 关系三层从未被判定过，因此那一版按 force 改版，此前质量报告里这三层的结论一律作废。0.4.0 只把标注协议版本抬到 eval-guide-0.2（图片语料规则写进指南第 11 节），标签内容未再改动，指纹随协议版本一起刷新。标签一旦冻结就不得修改；修改必须显式 force 并作废此前所有质量报告。真实私有语料只存在于本地受控评测仓。",
   "documents": {
     "战斗规则.docx": {
       "kind": "docx",
@@ -146,14 +146,14 @@
     }
   ],
   "sample_fingerprints": {
-    "golden-conflict-rank-rules": "96d1fbf6fb2f410ea2e7f7b81cbbd5daae41a27da5bdedee70618e4740ca1581",
-    "golden-docx-embedded-image-text": "8cb629cc67c2a60836e3c55c8b404aa00d367e782a3e35486b989cafd3afd6b8",
-    "golden-docx-two-paragraphs": "f398830cae9e487f3f039372aa6825ad8441cd0d39cfb94882bb6f4cb8f4867b",
-    "golden-en-xlsx-drop-rate": "23e22063e5878c4230a81c82039b3db65270b9b6428f7dfa0d200c576ed573d3",
-    "golden-explanation-damage": "81584f7ad6f66708d96c09e824647a2df4dda27738d3efcadd13170f0bfcfc24",
-    "golden-no-answer": "0d90ac78d9e062ccfd252bbd69d1f751cfaa4ad43cdcb69942ed07763d5b3ff5",
-    "golden-notation-unknown-symbol": "4ef5ec1b710e6b3456c9ace494e4f305d45472e75fe84cf0f7ac6464bb3efdb2",
-    "golden-png-standalone-import": "77ef90c33a53cfb606536f5b5f380b75359d21517a6337d2a3bf7cd6a8dccb5c",
-    "golden-xlsx-drop-rate": "2fd661ab43e6c0c5e3d15b695936b3af56514ecc34dada3b1fcaa4c762d3b6a4"
+    "golden-conflict-rank-rules": "24d9327af154434c55f189728bdecd45e40b8d7b9909f8f134e1fa724653ebf7",
+    "golden-docx-embedded-image-text": "cd2c3117c3c469bb111198faa4f5d6374712b0a9f7fbeb766a1c573504679a91",
+    "golden-docx-two-paragraphs": "f016ea6bed26417012331fcb332d24e6ba8d11bf0e71b72318c091f809bf982e",
+    "golden-en-xlsx-drop-rate": "5fc038c545208c4c503f7448d26161a93f2c7b4ced72d532ac540a7cfadcbee5",
+    "golden-explanation-damage": "5473a0276c27bfb398dd1de8cf5e41e7a12b44cc54ee9ee3eefb181d4591cd53",
+    "golden-no-answer": "a434cec7b570f08207fdf59b09a2173fbb06435a40c5f5c0b2b90af80fe857b9",
+    "golden-notation-unknown-symbol": "72f0914de5175670d1f5c0abdbd9d279295b5af97d2f9a3c9f1913846060c363",
+    "golden-png-standalone-import": "c6c5d489600dad7c6ce78ae367f483b4c55f2384233722c195ee995fd25e89ae",
+    "golden-xlsx-drop-rate": "9435adb6abc943f03ede639bfa660aab33d1bb894dbf62e4cb65e689a63fdd28"
   }
 }

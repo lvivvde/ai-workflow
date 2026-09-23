@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- 修能力包离线安装在真实机器上**装不完**的问题：包清单现在声明固定的 wheel 闭包（新增 `python_dependencies`，core 声明 14 个、visual 声明 8 个），bundle 必须携带整个闭包，`--require-hashes` 的离线 pip 因此能一次装完；此前只声明三个顶层 wheel，而 hash-checking 模式要求每个要装的 distribution 都带哈希出现在 requirements 里，于是合法 bundle 也会在安装中途失败。`verify` 逐条核对闭包，少一个成员或以未声明的 wheel 充数都报 `bundle_pin_mismatch`。
+- 修 wheel 分发名比较：按 PEP 503 归一化，`PyYAML` 与 pin 里的 `pyyaml` 视为同一分发，同一 bundle 重复声明同一分发会被拒绝而不是静默取最后一条。
+- 修 Windows 中文控制台下 CLI 直接崩的问题：`stdout`/`stderr` 以替换字符输出，JSON 负载里含当前代码页编不了的字符不再触发 `UnicodeEncodeError`；离线 pip 子进程以 UTF-8 输出，中文路径不再变成替换字符。
+- 修评测 harness 与产品**用不同的方式建索引**：harness 现在用 `selected_ocr_engine()` 取与 `run_pipeline` 相同的引擎选择，并把选中的引擎写进 Run Manifest 的 `capabilities.ocr_engine`（含降级链）。此前 harness 直接调 `build_index_atomically` 且不指定引擎，等于永远走 V1 单引擎路径，机器上装了 RapidOCR 也只能报 `unavailable`。
+- 评测 harness 测试不再隐含"本机没装 OCR 引擎"：改为断言「不可测量的层必须写明原因」，因此装没装引擎的机器上都能跑。
+- Windows 实机验收补记：Core 包从离线 bundle 安装成功（17 个 wheel，全程 `--no-index`），`capability status` 报 `core=available`，`tools/evaluate.py` 的 Run Manifest 记录到 `ocr_engine={selected: rapidocr, version: 1.3.24}`；用一张自带文字的 PNG 走 `index` 命令，索引得到 `ocr_succeeded=1`、`ocr_regions=2`，转写文本与图片内容逐字一致。
+- `docs/capabilities.md` 补齐离线包闭包要求、`uv venv` 无 pip 时的补救（`uv pip install pip`）与 `enhanced_ocr` pin 指向不存在版本（`paddlex==2.4.4`）的说明；`evaluation/quality-gates.md` 更正 OCR 层的边界——除引擎外，随仓语料的图片本身无文字，`cer` 要等语料换成带文字的图片才有分母。
 - 新增 V2-12 评测语料与首轮分层基线：`development_set` / `golden_set` 扩充到覆盖 DOCX、XLSX、内嵌图片与**独立 PNG**、中英文、箭头记法、未知符号、冲突、无答案、降级与释义 strata；Golden Set 升到 `0.2.0` 并保持冻结（改标签必须显式 `--force` 且作废此前报告）。
 - 新增标注协议 [`evaluation/annotation-guide.md`](evaluation/annotation-guide.md)（`eval-guide-0.1`）：普通转写单人标注加抽检、高风险事实/关系/冲突/无答案/释义双人标注 + 第三方裁决；逐字段说明来源范围、文字与 Critical Token、区域与阅读顺序、关系、记法（confirmed/rejected/unknown 与 scope）、Allowed Answer Set、引用、缺口与冲突怎么标。
 - 语料可用 `manifest.review_seeds` 声明样本需要的人工确认，评测在跑样本前用常规 `plan_review_action` / `apply_review_action` 逐条复现，运行自己的日志会记下这些决定，语料不依赖任何手工改过的状态目录。

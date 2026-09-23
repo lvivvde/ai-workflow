@@ -21,6 +21,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -350,29 +351,62 @@ class OfflineBundle:
         wheels: list[dict[str, Any]] = []
         models: list[dict[str, Any]] = []
 
-        declared_wheels = {
-            str(wheel.get("distribution")): wheel for wheel in entry.get("wheels") or ()
+        # Wheel metadata spells a name its own way ("PyYAML" for the pin
+        # "pyyaml"), so every comparison goes through PEP 503 normalisation
+        # instead of string equality.
+        declared_wheels: dict[str, Mapping[str, Any]] = {}
+        duplicates: list[str] = []
+        for wheel in entry.get("wheels") or ():
+            key = _normalise_distribution(wheel.get("distribution"))
+            if key in declared_wheels:
+                duplicates.append(str(wheel.get("distribution")))
+            declared_wheels[key] = wheel
+        for name in duplicates:
+            checks.append(
+                _check(
+                    f"pin:{_normalise_distribution(name)}",
+                    False,
+                    f"the bundle declares {name} more than once",
+                    reason=BUNDLE_PIN_MISMATCH,
+                )
+            )
+        # A bundle carries the artifacts *and* their pinned closure: an offline
+        # pip run in hash-checking mode installs every dependency from this
+        # bundle, so a missing closure member is a broken bundle, not a detail.
+        pinned = {
+            _normalise_distribution(distribution): version
+            for distribution, version in spec.pinned_python().items()
         }
-        pinned = {artifact.distribution: artifact for artifact in spec.python_artifacts}
-        for name, artifact in pinned.items():
+        roles: dict[str, str] = {
+            _normalise_distribution(dependency.distribution): "dependency"
+            for dependency in spec.python_dependencies
+        }
+        roles.update(
+            {
+                _normalise_distribution(artifact.distribution): "artifact"
+                for artifact in spec.python_artifacts
+            }
+        )
+        for name, version in pinned.items():
+            role = roles.get(name, "artifact")
             wheel = declared_wheels.get(name)
             if wheel is None:
                 checks.append(
                     _check(
                         f"pin:{name}",
                         False,
-                        f"this build pins {name}=={artifact.version}, the bundle "
+                        f"this build pins {name}=={version}, the bundle "
                         "does not carry it",
                         reason=BUNDLE_PIN_MISMATCH,
                     )
                 )
                 continue
-            if str(wheel.get("version")) != artifact.version:
+            if str(wheel.get("version")) != version:
                 checks.append(
                     _check(
                         f"pin:{name}",
                         False,
-                        f"this build pins {name}=={artifact.version}, the bundle "
+                        f"this build pins {name}=={version}, the bundle "
                         f"carries {wheel.get('version')}",
                         reason=BUNDLE_PIN_MISMATCH,
                     )
@@ -397,8 +431,9 @@ class OfflineBundle:
             checks.append(entry_check)
             wheels.append(
                 {
-                    "distribution": name,
-                    "version": artifact.version,
+                    "distribution": str(wheel.get("distribution") or name),
+                    "version": version,
+                    "role": role,
                     "filename": str(wheel.get("filename") or ""),
                     "path": str(path),
                     "sha256": str(wheel.get("sha256") or ""),
@@ -412,8 +447,8 @@ class OfflineBundle:
                 _check(
                     f"pin:{name}",
                     False,
-                    f"the bundle carries {name}, which this build's {pack} pack "
-                    "does not declare",
+                    f"the bundle carries {declared_wheels[name].get('distribution')}, "
+                    f"which this build's {pack} pack does not declare",
                     reason=BUNDLE_PIN_MISMATCH,
                 )
             )
@@ -605,12 +640,18 @@ class OfflineBundle:
             "stderr_tail": "",
         }
         if apply_python:
+            # The child is decoded as UTF-8 below, so ask it to write UTF-8:
+            # a console code page would otherwise turn paths into mojibake.
+            child_environment = dict(os.environ)
+            child_environment["PYTHONUTF8"] = "1"
+            child_environment["PYTHONIOENCODING"] = "utf-8"
             completed = subprocess.run(  # noqa: S603 - an explicit operator action
                 command,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
+                env=child_environment,
                 check=False,
             )
             python_result.update(
@@ -1051,6 +1092,12 @@ def _run_command(command: Sequence[str]) -> tuple[int, str]:
     except (OSError, subprocess.SubprocessError) as error:
         return (1, str(error))
     return (completed.returncode, f"{completed.stdout}\n{completed.stderr}")
+
+
+def _normalise_distribution(name: Any) -> str:
+    """PEP 503 name matching, so "PyYAML" and "pyyaml" are one distribution."""
+
+    return re.sub(r"[-_.]+", "-", str(name or "").strip().lower())
 
 
 def _verify_file(path: Path, expected: str) -> tuple[str, str]:

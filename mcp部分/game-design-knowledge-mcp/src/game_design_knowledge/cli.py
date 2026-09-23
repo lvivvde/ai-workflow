@@ -25,6 +25,24 @@ from .run_records import capability_baseline, write_run_record
 CAPABILITY_MANIFEST_DIRECTORY = "capabilities/manifests"
 
 
+def _tolerant_output() -> None:
+    """Keep console encoding from turning a printed report into a crash.
+
+    The JSON payloads carry captured tool output and paths, so they can hold
+    characters the active code page cannot encode. Report them with a
+    replacement character rather than dying mid-print.
+    """
+
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(errors="replace")
+        except (ValueError, OSError):
+            continue
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="game-design-knowledge")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -135,6 +153,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    _tolerant_output()
     arguments = build_parser().parse_args(argv)
     if arguments.command == "migrate":
         return _migrate(arguments)

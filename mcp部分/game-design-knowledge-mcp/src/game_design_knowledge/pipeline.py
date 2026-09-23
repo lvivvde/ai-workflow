@@ -342,6 +342,30 @@ HANDLERS = {
 # -- running --------------------------------------------------------------
 
 
+def selected_ocr_engine(
+    *,
+    ocr_engine: OcrEngine | None = None,
+    allow_compatibility_fallback: bool = True,
+    runtime: Any = None,
+) -> OcrSelection:
+    """The one engine a build uses, and the chain it walked to pick it.
+
+    A build picks its engine once, for the whole source tree, and every caller
+    that builds an index has to make that same choice: a build handed no engine
+    name stays on the V1 single-engine path, which never records a region, so a
+    machine that has an engine installed would still report its OCR as
+    unavailable.
+    """
+
+    return select_engine(
+        chain=(
+            (ocr_engine, *DEFAULT_CHAIN) if ocr_engine is not None else DEFAULT_CHAIN
+        ),
+        allow_compatibility_fallback=allow_compatibility_fallback,
+        runtime=runtime,
+    )
+
+
 def run_pipeline(
     project_root: Path,
     index_directory: Path,
@@ -418,10 +442,8 @@ def run_pipeline(
     with runtime:
         # One engine for the whole build: the indexer is handed a single engine
         # name, so the chain has to be walked once, not once per document.
-        selection = select_engine(
-            chain=(
-                (ocr_engine, *DEFAULT_CHAIN) if ocr_engine is not None else DEFAULT_CHAIN
-            ),
+        selection = selected_ocr_engine(
+            ocr_engine=ocr_engine,
             allow_compatibility_fallback=allow_compatibility_fallback,
             runtime=runtime,
         )
@@ -673,4 +695,5 @@ __all__ = [
     "PIPELINE_NAMES",
     "configured_manifest",
     "run_pipeline",
+    "selected_ocr_engine",
 ]

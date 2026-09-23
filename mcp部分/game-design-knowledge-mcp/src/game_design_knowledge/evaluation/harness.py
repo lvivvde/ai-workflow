@@ -24,6 +24,8 @@ import tracemalloc
 from typing import Any, Callable, Mapping, Sequence
 
 from ..index_build import build_index_atomically
+from ..ocr import TESSERACT_ENGINE
+from ..pipeline import selected_ocr_engine
 from ..shared_index import SharedIndexRead
 from ..evidence_package import image_layout, image_transcription
 from .claims import (
@@ -216,6 +218,7 @@ def run_evaluation(
     executions: list[SampleExecution] = []
     build_error: str | None = None
     build_report: Mapping[str, Any] = {}
+    ocr_selection: Any = None
     build_seconds = 0.0
     index_status: Mapping[str, Any] = {}
     index_document_paths: frozenset[str] = frozenset()
@@ -247,7 +250,16 @@ def run_evaluation(
 
             started = time.perf_counter()
             try:
-                build_report = build_index_atomically(source_directory, index_directory)
+                # Build the index the way the product builds it: the engine the
+                # pipeline would pick is named explicitly, so the chain runs and
+                # regions exist to score. A build handed no engine name would
+                # report unavailable OCR even on a machine that has an engine.
+                ocr_selection = selected_ocr_engine()
+                build_report = build_index_atomically(
+                    source_directory,
+                    index_directory,
+                    ocr_engine=(ocr_selection.engine or TESSERACT_ENGINE).name,
+                )
             except Exception as error:  # noqa: BLE001 - reported, not swallowed
                 build_error = f"{type(error).__name__}: {error}"
             build_seconds = time.perf_counter() - started
@@ -345,6 +357,11 @@ def run_evaluation(
             "hardware_profile": hardware_profile,
             "capability_packs": sorted(
                 {pack for sample in samples for pack in sample.capabilities}
+            ),
+            # Which engine produced the regions these numbers were scored
+            # against, and the chain the build walked to reach it.
+            "ocr_engine": (
+                ocr_selection.as_payload() if ocr_selection is not None else {}
             ),
             "degradation": dict(recorded_degradation),
         },

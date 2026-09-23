@@ -10,6 +10,11 @@ import tempfile
 import unittest
 import zipfile
 
+try:
+    from tests.host_stubs import OCR_FREE_INTERPRETER_FLAGS, ocr_free_environment
+except ModuleNotFoundError:  # pragma: no cover - discover imports tests as modules
+    from host_stubs import OCR_FREE_INTERPRETER_FLAGS, ocr_free_environment
+
 
 PNG_BYTES = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
@@ -64,12 +69,11 @@ class IndexDocxFromCliTests(unittest.TestCase):
             self._write_docx(source_dir / "战斗系统.docx")
 
             project_root = Path(__file__).resolve().parents[1]
-            environment = os.environ.copy()
-            environment["PYTHONPATH"] = str(project_root / "src")
-            environment["PATH"] = ""
+            environment = ocr_free_environment(project_root)
             completed = subprocess.run(
                 [
                     sys.executable,
+                    *OCR_FREE_INTERPRETER_FLAGS,
                     "-m",
                     "game_design_knowledge.cli",
                     "index",

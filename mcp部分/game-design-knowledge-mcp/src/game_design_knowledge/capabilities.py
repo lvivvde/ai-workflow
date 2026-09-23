@@ -65,6 +65,27 @@ class PythonArtifact:
 
 
 @dataclass(frozen=True)
+class PythonDependency:
+    """One pinned distribution that rides along with a pack's artifacts.
+
+    These are the transitive distributions the pack's own artifacts need. They
+    are pinned for one reason: an offline install runs pip in
+    ``--require-hashes`` mode, so every distribution pip installs has to come
+    from the requirements file with a hash. A bundle that carried only the
+    artifacts could never satisfy its own dependencies, and a bundle that
+    carried unpinned extras would be refused by the pin check.
+
+    They are deliberately *not* artifacts: the pack does not claim to own them,
+    they may already be installed for another reason, and unloading a pack must
+    not remove them.
+    """
+
+    distribution: str
+    version: str
+    purpose: str
+
+
+@dataclass(frozen=True)
 class ModelArtifact:
     """One pinned model file, stored outside the project's SQLite data."""
 
@@ -88,11 +109,28 @@ class CapabilityPack:
     download_size_mb: float
     installed_size_mb: float
     python_artifacts: tuple[PythonArtifact, ...] = ()
+    python_dependencies: tuple[PythonDependency, ...] = ()
     model_artifacts: tuple[ModelArtifact, ...] = ()
     builtin_components: tuple[str, ...] = ()
     optional: bool = True
     idle_timeout_seconds: float = 300.0
     notes: tuple[str, ...] = ()
+
+    def pinned_python(self) -> dict[str, str]:
+        """Every Python distribution this pack's bundle has to carry.
+
+        Artifacts come first, and win where a distribution is both: the
+        artifact entry is the one that carries a module name and an ownership
+        claim.
+        """
+
+        pinned = {
+            artifact.distribution: artifact.version
+            for artifact in self.python_artifacts
+        }
+        for dependency in self.python_dependencies:
+            pinned.setdefault(dependency.distribution, dependency.version)
+        return pinned
 
     def as_payload(self) -> dict[str, Any]:
         return {
@@ -119,6 +157,14 @@ class CapabilityPack:
                     "purpose": artifact.purpose,
                 }
                 for artifact in self.python_artifacts
+            ],
+            "python_dependencies": [
+                {
+                    "distribution": dependency.distribution,
+                    "version": dependency.version,
+                    "purpose": dependency.purpose,
+                }
+                for dependency in self.python_dependencies
             ],
             "model_artifacts": [
                 {
@@ -158,6 +204,26 @@ CORE_PACK = CapabilityPack(
         ),
         PythonArtifact("onnxruntime", "onnxruntime", "1.19.2", "CPU inference runtime"),
     ),
+    # The pinned closure of the three artifacts above, resolved for Windows
+    # x64 / CPython 3.12. Keep it complete: an offline pip run in hash-checking
+    # mode installs the closure from the bundle, and a missing member turns a
+    # valid bundle into an install that fails halfway.
+    python_dependencies=(
+        PythonDependency("numpy", "1.26.4", "array backend for RapidOCR and OpenCV"),
+        PythonDependency("shapely", "2.1.2", "RapidOCR geometry"),
+        PythonDependency("pyclipper", "1.4.0", "RapidOCR polygon clipping"),
+        PythonDependency("pillow", "12.3.0", "image decoding"),
+        PythonDependency("pyyaml", "6.0.3", "RapidOCR configuration"),
+        PythonDependency("six", "1.17.0", "RapidOCR compatibility shim"),
+        PythonDependency("packaging", "26.3", "version parsing"),
+        PythonDependency("coloredlogs", "15.0.1", "onnxruntime console output"),
+        PythonDependency("humanfriendly", "10.0", "coloredlogs formatting"),
+        PythonDependency("pyreadline3", "3.5.6", "humanfriendly console support"),
+        PythonDependency("flatbuffers", "25.12.19", "onnxruntime serialization"),
+        PythonDependency("protobuf", "7.36.2", "onnxruntime serialization"),
+        PythonDependency("sympy", "1.14.0", "onnxruntime symbolic shapes"),
+        PythonDependency("mpmath", "1.3.0", "sympy arbitrary precision"),
+    ),
     builtin_components=(
         "ooxml-parser",
         "sqlite-fts5-store",
@@ -185,6 +251,12 @@ ENHANCED_OCR_PACK = CapabilityPack(
         PythonArtifact("paddleocr", "paddleocr", "2.9.1", "enhanced OCR"),
         PythonArtifact("paddlepaddle", "paddle", "2.6.2", "enhanced OCR runtime"),
         PythonArtifact("paddlex", "paddlex", "2.4.4", "layout analysis"),
+    ),
+    notes=(
+        "This pack's Python closure is not pinned yet: the declared "
+        "paddlex==2.4.4 does not exist on the index, so the closure cannot be "
+        "resolved and a bundle cannot install this pack offline. Correcting the "
+        "pin is a PaddleOCR generation decision, not a mechanical fix.",
     ),
 )
 
@@ -232,6 +304,16 @@ VISUAL_PACK = CapabilityPack(
     installed_size_mb=3400.0,
     python_artifacts=(
         PythonArtifact("ollama", "ollama", "0.3.3", "local model runtime"),
+    ),
+    python_dependencies=(
+        PythonDependency("httpx", "0.27.2", "ollama client transport"),
+        PythonDependency("httpcore", "1.0.9", "httpx transport"),
+        PythonDependency("h11", "0.16.0", "HTTP/1.1 protocol"),
+        PythonDependency("anyio", "4.15.1", "httpx async backend"),
+        PythonDependency("sniffio", "1.3.1", "async backend detection"),
+        PythonDependency("certifi", "2026.7.22", "TLS root certificates"),
+        PythonDependency("idna", "3.20", "internationalized domain names"),
+        PythonDependency("typing-extensions", "4.16.0", "typed public API"),
     ),
     model_artifacts=(
         ModelArtifact(

@@ -24,6 +24,48 @@
       "version": "0.3.3"
     }
   ],
+  "python_dependencies": [
+    {
+      "distribution": "httpx",
+      "purpose": "ollama client transport",
+      "version": "0.27.2"
+    },
+    {
+      "distribution": "httpcore",
+      "purpose": "httpx transport",
+      "version": "1.0.9"
+    },
+    {
+      "distribution": "h11",
+      "purpose": "HTTP/1.1 protocol",
+      "version": "0.16.0"
+    },
+    {
+      "distribution": "anyio",
+      "purpose": "httpx async backend",
+      "version": "4.15.1"
+    },
+    {
+      "distribution": "sniffio",
+      "purpose": "async backend detection",
+      "version": "1.3.1"
+    },
+    {
+      "distribution": "certifi",
+      "purpose": "TLS root certificates",
+      "version": "2026.7.22"
+    },
+    {
+      "distribution": "idna",
+      "purpose": "internationalized domain names",
+      "version": "3.20"
+    },
+    {
+      "distribution": "typing-extensions",
+      "purpose": "typed public API",
+      "version": "4.16.0"
+    }
+  ],
   "requirements": {
     "cpu_cores": 8,
     "free_disk_gb": 20.0,

@@ -27,15 +27,11 @@
     "required_gaps": [],
     "conflict_group_expected": false,
     "transcription": {
-      "text": "起手 追击 收招",
+      "text": "连招流程 起手→追击→收招",
       "critical_tokens": ["→"],
-      "regions": ["起手", "追击", "收招"],
-      "reading_order": ["起手", "追击", "收招"]
-    },
-    "relations": [
-      { "source": "起手", "target": "追击", "kind": "next_step" },
-      { "source": "追击", "target": "收招", "kind": "next_step" }
-    ]
+      "regions": ["连招流程", "起手→追击→收招"],
+      "reading_order": ["连招流程", "起手→追击→收招"]
+    }
   },
   "annotation": {
     "annotators": ["synthetic-pass-a", "synthetic-pass-b"],
@@ -44,5 +40,5 @@
   },
   "modes": ["component", "e2e"],
   "capabilities": ["core"],
-  "notes": "内嵌图片的命中必须带段落定位。标注的转写与箭头关系描述这张合成图应表达的内容，本机没有 OCR 引擎时二者都应记为 unavailable。"
+  "notes": "内嵌图片的命中必须带段落定位。图片是 assets/连招流程.png，像素里真有这两个文本块，箭头在行内（起手→追击→收招）。本样本不标注 relations：部署引擎只能把「独占一行的重复上箭头」转写成独立箭头块，行内箭头所在区域仍是文本块，产不出关系（见 evaluation/annotation-guide.md）；关系层由 dev-png-standalone-import 与其他带独立箭头块的样本负责。本机没有 OCR 引擎时转写应记为 unavailable，而不是被算作命中。"
 }

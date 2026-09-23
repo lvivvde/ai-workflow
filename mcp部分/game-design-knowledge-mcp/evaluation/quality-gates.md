@@ -116,16 +116,20 @@ uv run python tools/evaluate.py --gates D:\controlled-eval\gates.json
 
 ## 8. OCR 层在什么情况下真的能被判定
 
-`ocr_transcription` 层要出数字需要**两件事同时成立**，缺一样就如实报 `unavailable` 并归 `environment`——这是预期行为，不是评测坏了：
+`ocr_transcription` / `layout_regions` / `reading_order_relations` 三层要出数字需要**两件事同时成立**，缺一样就如实报 `unavailable` 并归 `environment`——这是预期行为，不是评测坏了：
 
 1. **机器上有可用引擎**：装了核心 OCR 引擎（离线 RapidOCR 模型，或 Tesseract 兼容回退）后，索引才会产生 OCR 区域；
-2. **图片里真的有字**：随仓语料的图片是合成的占位 PNG（标注说明"这张图本该写什么"），本身没有可识别的文字像素。因此即便机器装了引擎，随仓语料也只能证明"链路跑通、区域被记录"，`cer` / `critical_token_coverage` 要等语料换成带文字的图片后才谈得上有分母。
+2. **图片里真的有字**：图片文档要引用 `assets/` 下像素里真有字符的合成 PNG（规则见 [`annotation-guide.md` §11](annotation-guide.md)）。1x1 占位图会让这三层永远没有分母：即便机器装了引擎，也只能证明"链路跑通、区域被记录"，`cer` / `critical_token_coverage` 谈不上有分母。
+
+随仓语料两条都已满足（`development_set@0.2.0`、`golden_set@0.3.0` 起），因此在装了引擎的机器上三层都是 `measured`：标注样本数与区域数够门槛比较，`cer`、`critical_token_coverage`、`layout_elements`、`annotated_relation_scores` 都由同一次运行给出。
 
 判定行为不因上面哪一条缺失而改变：
 
 - 门槛不会被跳过，也不会被折成通过，报告里始终是「这一层这轮没有测」；
 - 装了引擎后重跑同一份门槛，引擎选择会写进 Run Manifest 的 `capabilities.ocr_engine`（含命中引擎与它走过的降级链），`ocr_transcription@component/e2e` 的状态也随之变化；
 - 因此基线的结论是「哪些层被真正测了、哪些层还差什么」，而不是「质量已达标」。
+
+语料只画引擎能可靠转写的箭头形状（§11.2 的实测表），因此这三层的数字衡量的是**管线**，不是引擎的字形混淆；引擎丢独立箭头、把 `↓` 读成 `↑` 这类问题单独跟踪，不靠让语料常年失败来证明它存在。
 
 ## 9. 阈值怎么来的
 

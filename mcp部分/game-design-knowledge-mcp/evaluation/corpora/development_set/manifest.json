@@ -1,10 +1,10 @@
 {
   "name": "development_set",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "split": "development",
   "frozen": false,
   "guide_version": "eval-guide-0.1",
-  "description": "可修改的开发集：用于调试、错误分析和回归定位。样本全部为合成内容，不含真实策划材料。",
+  "description": "可修改的开发集：用于调试、错误分析和回归定位。样本全部为合成内容，不含真实策划材料。0.2.0 起图片文档引用 assets/ 下已提交的合成 PNG，像素里真的有标注的字符，OCR / 布局 / 箭头规则才有东西可观测。",
   "documents": {
     "玩法说明.docx": {
       "kind": "docx",
@@ -54,7 +54,9 @@
     },
     "图像/战斗流程.png": {
       "kind": "png",
-      "note": "1x1 合成占位图。独立图片用它验证：图片作为独立文档入库、OCR 不可用时显式降级，以及降级时不得编造图中文字。"
+      "asset": "assets/战斗流程.png",
+      "asset_sha256": "f8abf79cd2ef35d38c26cff57abec83f1001dd845bf96819df250a07ebb5951e",
+      "note": "合成流程图，像素里真的有字：自上而下是「战斗流程 / 结算 / ↑↑ / 判定 / ↑↑ / 开始」。箭头朝上，因此流程自下而上读作 开始 → 判定 → 结算；这是部署引擎只能可靠转写重复上箭头（见 evaluation/annotation-guide.md）所决定的构造约束，不是排版偏好。"
     },
     "连招与记法.docx": {
       "kind": "docx",
@@ -67,7 +69,9 @@
         {
           "type": "image",
           "relationship_id": "rIdImage1",
-          "media_name": "word/media/flow.png"
+          "media_name": "word/media/flow.png",
+          "asset": "assets/连招流程.png",
+          "asset_sha256": "19d933a217bef7868a797887b35032909af58a4336776b9ce3bd343df67b2124"
         },
         {
           "type": "paragraph",
@@ -161,16 +165,16 @@
   "sample_fingerprints": {
     "dev-conflict-challenge-counts": "7b23fedfdb9018658f4091b167774cb143474ab4350ab031cc550a798d2f6076",
     "dev-degraded-embedded-image": "420950e78190d22f0a245ffdc259854db7a66b005e10371d231042fe50c5abdf",
-    "dev-docx-embedded-image-flow": "c5e6fe973b555826665efa9cda81600e3283acc848eacf23e39b10d7c9dac8c1",
+    "dev-docx-embedded-image-flow": "6b79c82cf1992ad4afec5a22e6e2bc369ad047347e27cc6d898eee41eb64a10a",
     "dev-docx-heading-path": "12a989f2bb75a3001e4d4ca0970b0329e1ef24ee56b3f16d4196a4f9e1e82c06",
     "dev-docx-list-item": "29d89eba7017656adbf033510bcc628d93a26b869c17329e5c58fc535cf6f80a",
     "dev-en-docx-cooldown": "2d7658c9b24087b21db5e27bbb923a33bebaa2b9587b3b4e385cef046b8d189f",
     "dev-explanation-daily-tasks": "3ed5cb51cdfe768bf2810d9f3b918c1f245867a1432c7100cefcdd2238d31747",
     "dev-no-answer": "94de67f81101af4b6e6083ae21b85736ad6f999db186b6bae4d4ee605c8bcc84",
-    "dev-notation-confirmed-arrow": "40132eae8140ec20e05feefb1511b0ceb22e3626f21d36f21ef5c029fc91ff07",
+    "dev-notation-confirmed-arrow": "f4e36402731c48ae8d9ca9e53e2343fdf70d0ac82d8e589b50011fd804be7c98",
     "dev-notation-unknown": "b34fcabe402df543e0eaf5a3add64b963ee71eeefc93dff2923cab815352e4b1",
     "dev-notation-unknown-token": "dd049ad630905fc7130319b327656e0ce1e7a808de1c58cf9756368c38537b60",
-    "dev-png-standalone-import": "4684a06911deb6cd337ca2de432c6fe8370ee3e883f38c1b7807dba3cbf44a0f",
+    "dev-png-standalone-import": "268ea1a022f17552b9cfedbfa8b730ec27a243e5fd7f677e11f2c9b68cfd5290",
     "dev-xlsx-value": "18741c4473d5a2a42a0950edbc22d1673405d15c57ef75c7d029a1d5e26387cd"
   }
 }

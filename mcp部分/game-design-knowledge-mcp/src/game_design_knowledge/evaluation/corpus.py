@@ -75,7 +75,9 @@ def load_corpus(
     seen: set[str] = set()
     for sample_path in sample_paths:
         payload = json.loads(sample_path.read_text(encoding="utf-8"))
-        sample = Sample.from_payload(payload, sample_path.name, manifest.documents)
+        sample = Sample.from_payload(
+            payload, sample_path.name, manifest.documents, root
+        )
         if sample.sample_id in seen:
             raise SchemaError(f"Duplicate sample_id: {sample.sample_id}")
         seen.add(sample.sample_id)

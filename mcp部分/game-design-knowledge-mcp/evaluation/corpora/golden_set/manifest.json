@@ -1,10 +1,10 @@
 {
   "name": "golden_set",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "split": "golden",
   "frozen": true,
   "guide_version": "eval-guide-0.1",
-  "description": "冻结的 held-out 合成语料（首个冻结版本 0.2.0，覆盖文档、表格、内嵌与独立图片、中英文、箭头记法、冲突、无答案与降级档位）。标签一旦冻结就不得修改；修改必须显式 force 并作废此前所有质量报告。真实私有语料只存在于本地受控评测仓。",
+  "description": "冻结的 held-out 合成语料（覆盖文档、表格、内嵌与独立图片、中英文、箭头记法、冲突、无答案与降级档位）。0.3.0 把图片换成语料自带 assets/ 下的合成 PNG，并同步校正转写与关系标注：0.2.0 的图片是 1x1 占位图，OCR / 布局 / 关系三层从未被判定过，因此这一版按 force 改版，此前质量报告里这三层的结论一律作废。标签一旦冻结就不得修改；修改必须显式 force 并作废此前所有质量报告。真实私有语料只存在于本地受控评测仓。",
   "documents": {
     "战斗规则.docx": {
       "kind": "docx",
@@ -53,7 +53,9 @@
     },
     "图像/结算流程.png": {
       "kind": "png",
-      "note": "1x1 合成占位图。独立图片用它验证：图片作为独立文档入库、作为检索单元回读，以及缺少 OCR 时的显式降级。"
+      "asset": "assets/结算流程.png",
+      "asset_sha256": "f1f26dba7a8cffc691d8e8924d63a70020b81d02dc2fea60777923a7100574a1",
+      "note": "合成流程图，像素里真的有字：自上而下是「结算流程 / 发奖 / ↑↑ / 结算」。箭头朝上，因此流程自下而上读作 结算 → 发奖；构造约束的理由见 evaluation/annotation-guide.md。"
     },
     "结算流程.docx": {
       "kind": "docx",
@@ -66,7 +68,9 @@
         {
           "type": "image",
           "relationship_id": "rIdImage1",
-          "media_name": "word/media/settle.png"
+          "media_name": "word/media/settle.png",
+          "asset": "assets/结算发奖流程.png",
+          "asset_sha256": "b94d1b5a0cdd76509bea6e42decacc77f69668d65534865f8a7868075f4eade2"
         }
       ]
     },
@@ -143,13 +147,13 @@
   ],
   "sample_fingerprints": {
     "golden-conflict-rank-rules": "96d1fbf6fb2f410ea2e7f7b81cbbd5daae41a27da5bdedee70618e4740ca1581",
-    "golden-docx-embedded-image-text": "503a48823fb9dd01016dd3d09f3400af144dc6c0fd83c89508d1a994583024b7",
+    "golden-docx-embedded-image-text": "8cb629cc67c2a60836e3c55c8b404aa00d367e782a3e35486b989cafd3afd6b8",
     "golden-docx-two-paragraphs": "f398830cae9e487f3f039372aa6825ad8441cd0d39cfb94882bb6f4cb8f4867b",
     "golden-en-xlsx-drop-rate": "23e22063e5878c4230a81c82039b3db65270b9b6428f7dfa0d200c576ed573d3",
     "golden-explanation-damage": "81584f7ad6f66708d96c09e824647a2df4dda27738d3efcadd13170f0bfcfc24",
     "golden-no-answer": "0d90ac78d9e062ccfd252bbd69d1f751cfaa4ad43cdcb69942ed07763d5b3ff5",
     "golden-notation-unknown-symbol": "4ef5ec1b710e6b3456c9ace494e4f305d45472e75fe84cf0f7ac6464bb3efdb2",
-    "golden-png-standalone-import": "e48d6b707076d16f412e7f268517746566b14b303cab2d2b62e9d707e4490206",
+    "golden-png-standalone-import": "77ef90c33a53cfb606536f5b5f380b75359d21517a6337d2a3bf7cd6a8dccb5c",
     "golden-xlsx-drop-rate": "2fd661ab43e6c0c5e3d15b695936b3af56514ecc34dada3b1fcaa4c762d3b6a4"
   }
 }

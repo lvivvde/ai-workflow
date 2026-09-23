@@ -2,11 +2,15 @@
 
 Corpora ship generator specs rather than binary documents, so the public repo
 holds only synthetic or desensitized material and every sample stays diffable.
+An image document points at a committed PNG under the corpus root (``asset``)
+instead of inlining bytes, so the picture a sample annotates can be opened and
+reviewed next to the labels - the pixel content is synthetic either way.
 """
 
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -20,6 +24,8 @@ TINY_PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmM"
     "IQAAAABJRU5ErkJggg=="
 )
+
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 CONTENT_TYPES_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
@@ -70,13 +76,13 @@ def materialize_document(document: DocumentSpec, destination: Path) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     kind = document.generator.get("kind")
     if kind == "docx":
-        _write_docx(target, document.generator)
+        _write_docx(target, document.generator, document.asset_root)
     elif kind == "xlsx":
         _write_xlsx(target, document.generator)
     elif kind == "catalog":
         _write_catalog(target, document.generator)
     elif kind == "png":
-        _write_png(target, document.generator)
+        _write_png(target, document.generator, document.asset_root)
     else:  # pragma: no cover - guarded by the schema
         raise SchemaError(f"Unsupported generator kind: {kind!r}")
     return target
@@ -88,14 +94,70 @@ def _generator_fingerprint(generator: Mapping[str, Any]) -> str:
     return canonical_fingerprint(generator)
 
 
-def _write_docx(path: Path, generator: Mapping[str, Any]) -> None:
+def _asset_payload(
+    asset: Any, asset_sha256: Any, root: Path | None, where: Path
+) -> bytes:
+    """Read one committed corpus asset and check it is what the spec pinned."""
+
+    if not isinstance(asset, str) or not asset.strip():
+        raise SchemaError(f"{where}: asset must be a non-empty relative path")
+    if not _is_sha256(asset_sha256):
+        raise SchemaError(
+            f"{where}: asset {asset!r} needs the sha256 of the committed picture; "
+            "an unpinned asset would let the annotation drift away from the pixels"
+        )
+    relative = Path(asset)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise SchemaError(f"{where}: asset must stay inside the corpus: {asset}")
+    if root is None:
+        raise SchemaError(
+            f"{where}: asset {asset!r} needs the corpus directory it belongs to; "
+            "load the corpus with load_corpus() before materializing it"
+        )
+    corpus_root = Path(root).resolve()
+    source = (corpus_root / relative).resolve()
+    if not source.is_relative_to(corpus_root):
+        raise SchemaError(f"{where}: asset escapes the corpus: {asset}")
+    if not source.is_file():
+        raise SchemaError(f"{where}: corpus asset is missing: {asset}")
+    payload = source.read_bytes()
+    if not payload.startswith(PNG_SIGNATURE):
+        raise SchemaError(f"{where}: corpus asset must be a PNG: {asset}")
+    expected = str(asset_sha256).lower()
+    actual = hashlib.sha256(payload).hexdigest()
+    if actual != expected:
+        raise SchemaError(
+            f"{where}: asset {asset} does not match the pinned sha256; "
+            f"the picture and its annotation drifted apart (expected "
+            f"{expected}, got {actual})"
+        )
+    return payload
+
+
+def _is_sha256(value: Any) -> bool:
+    if not isinstance(value, str) or len(value) != 64:
+        return False
+    return all(character in "0123456789abcdefABCDEF" for character in value)
+
+
+def _image_payload(block: Mapping[str, Any], where: Path, root: Path | None) -> bytes:
+    """The bytes for one image document or embedded-image block."""
+
+    if block.get("asset") is None:
+        return TINY_PNG
+    return _asset_payload(block.get("asset"), block.get("asset_sha256"), root, where)
+
+
+def _write_docx(
+    path: Path, generator: Mapping[str, Any], asset_root: Path | None = None
+) -> None:
     blocks = generator.get("blocks")
     if not isinstance(blocks, list) or not blocks:
         raise SchemaError(f"docx generator needs a non-empty blocks list: {path}")
     media: list[tuple[str, bytes]] = []
     relationships: list[tuple[str, str, str]] = []
     body = "".join(
-        _docx_block(block, path, media, relationships) for block in blocks
+        _docx_block(block, path, media, relationships, asset_root) for block in blocks
     )
     document_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -120,6 +182,7 @@ def _docx_block(
     path: Path,
     media: list[tuple[str, bytes]],
     relationships: list[tuple[str, str, str]],
+    asset_root: Path | None = None,
 ) -> str:
     if not isinstance(block, Mapping):
         raise SchemaError(f"docx blocks must be objects: {path}")
@@ -135,7 +198,7 @@ def _docx_block(
                 media_name.replace("word/", "", 1),
             )
         )
-        media.append((media_name, TINY_PNG))
+        media.append((media_name, _image_payload(block, path, asset_root)))
         return (
             "<w:p><w:r><w:drawing>"
             '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/'
@@ -202,17 +265,21 @@ def _write_catalog(path: Path, generator: Mapping[str, Any]) -> None:
     )
 
 
-def _write_png(path: Path, generator: Mapping[str, Any]) -> None:
+def _write_png(
+    path: Path, generator: Mapping[str, Any], asset_root: Path | None = None
+) -> None:
     """A standalone image document, so the corpus covers loose image imports.
 
-    The bytes are a real PNG; the corpus does not ship a photographed design
-    document, and the annotation says what the image is meant to say.
+    With an ``asset`` the corpus ships a committed synthetic PNG whose pixels
+    really carry the annotated text, so OCR, layout, and the arrow rules have
+    something to observe. Without one the document stays a 1x1 placeholder, and
+    the annotation says what the image is meant to say.
     """
 
     suffix = path.suffix.lower()
     if suffix not in {".png", ".jpg", ".jpeg"}:
         raise SchemaError(f"png generator needs a .png/.jpg/.jpeg path: {path}")
-    path.write_bytes(TINY_PNG)
+    path.write_bytes(_image_payload(generator, path, asset_root))
 
 
 def _write_xlsx(path: Path, generator: Mapping[str, Any]) -> None:

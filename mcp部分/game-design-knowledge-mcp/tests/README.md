@@ -19,6 +19,8 @@ V2-12 评测语料与发布门槛的回归测试：
 
 - `test_evaluation_gates.py`：指标取值形状（比率 / P-R-F1 三元组 / 覆盖率）、绝对下限与上限的通过和失败、`unavailable` 归环境类、样本不足与指标未发布归标注类、模式过滤逐模式判定、相对回退限制（无基线时不判定、小幅回退通过、超过允许跌幅失败、基线没有该模式时归数据类）、门槛文件校验（缺文件、空 gates、缺边界、未知 error_class、非数字边界、往返序列化）、错误分类表与 10 层一一对应、提交的 `quality-gates.json` 只点名词表里真实发布的指标，以及 `tools/evaluate.py` / `tools/judge_gates.py` 两个入口的退出码、错误分类输出与 `--baseline` 回显。
 
+- `test_evaluation_fixtures.py`：语料图片必须真的存在、真的是 PNG、不越出语料目录、字节与 `asset_sha256` 一致，缺图 / 漂移 / 越界 / 无语料目录都报 `SchemaError`，没有 `asset` 的图片仍走占位图这条降级路径；另外把「已提交的字节 == 渲染器输出」「渲染器画的行 == 标注的 regions」「`transcription.text` == `regions` 的拼接」钉成回归，防止再出现「标注描述一张像素里不存在的图」。
+
 不可变修订与原子发布的回归测试：
 
 - `test_durable_state.py`：修订身份、归档去重、append-only review events、确认字典校验、锁、更新版本状态只读拒绝，以及 bundle 的哈希/清单/定位校验。

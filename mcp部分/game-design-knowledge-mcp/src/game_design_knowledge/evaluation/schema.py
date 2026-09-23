@@ -444,10 +444,14 @@ class DocumentSpec:
 
     Samples ship generator specs instead of binary OOXML so the public repo
     never carries real design material, and so the corpus stays diffable.
+    ``asset_root`` is the corpus directory a committed image asset is resolved
+    against; it is a load-time fact rather than part of the payload, so the
+    fingerprint stays identical on every machine.
     """
 
     path: str
     generator: Mapping[str, Any]
+    asset_root: Path | None = None
 
     @classmethod
     def from_payload(
@@ -455,6 +459,7 @@ class DocumentSpec:
         payload: Mapping[str, Any],
         where: str,
         registry: Mapping[str, Any] | None = None,
+        asset_root: Path | None = None,
     ) -> DocumentSpec:
         if not isinstance(payload, Mapping):
             raise SchemaError(f"{where}: documents entries must be objects")
@@ -476,7 +481,7 @@ class DocumentSpec:
             raise SchemaError(
                 f"{where}: generator.kind must be docx, xlsx, catalog, or png"
             )
-        return cls(path=path, generator=dict(generator))
+        return cls(path=path, generator=dict(generator), asset_root=asset_root)
 
     def as_payload(self) -> dict[str, Any]:
         return {"path": self.path, "generator": dict(self.generator)}
@@ -501,6 +506,7 @@ class Sample:
         payload: Mapping[str, Any],
         where: str,
         registry: Mapping[str, Any] | None = None,
+        asset_root: Path | None = None,
     ) -> Sample:
         if not isinstance(payload, Mapping):
             raise SchemaError(f"{where}: sample must be an object")
@@ -534,7 +540,8 @@ class Sample:
             sample_id=sample_id,
             stratum=Stratum.from_payload(payload.get("stratum"), where),
             documents=tuple(
-                DocumentSpec.from_payload(item, where, registry) for item in documents
+                DocumentSpec.from_payload(item, where, registry, asset_root)
+                for item in documents
             ),
             tool=tool,
             arguments=dict(arguments),

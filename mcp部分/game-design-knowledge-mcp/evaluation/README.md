@@ -10,8 +10,8 @@ evaluation/
 ├── quality-gates.md    # 门槛怎么判、失败怎么归因
 ├── corpora/            # 版本化的脱敏/合成语料
 │   ├── v1_compatibility/
-│   ├── development_set/
-│   └── golden_set/
+│   ├── development_set/   # 内含 assets/：像素里真有字的合成 PNG
+│   └── golden_set/        # 同上
 └── runs/               # 本地产物，不入库
 ```
 
@@ -67,6 +67,7 @@ uv run python tools/judge_gates.py --run evaluation/runs/<run-id>/run.json `
 
 - `manifest.sample_fingerprints` 记录每个样本的指纹。样本被改动后 `load_corpus` 直接拒绝，必须先 `--refresh-manifest`。
 - `frozen: true` 的语料（Golden Set）拒绝刷新，除非显式 `--force`；改写已冻结标签会让此前所有质量报告作废。
+- 图片文档（独立 PNG 与 DOCX 内嵌图片）用 `asset` + `asset_sha256` 指向语料自带的 `assets/<名称>.png`：像素里真的有标注的字符，改图必须同步改 pin 与标注。图片由 `tools/render_corpus_assets.py` 渲染（**开发期工具，需要 Pillow**；评测只用标准库把 PNG 原样写出去），规则与实测约束见 [`annotation-guide.md` §11](annotation-guide.md)。
 - 高风险样本必须有 **两名独立标注者 + 第三方裁决**，否则加载即失败。高风险包括冲突、非 `found` 期望、未知记号、流程图/图片文本/冲突/未知内容类型。
 - 人工只需在隔离副本上用 `tests/test_evaluation_harness.py` 里的 `allow_unadjudicated_high_risk` 放宽，正式加载不放宽。
 - `manifest.review_seeds` 声明样本需要的人工确认（记法含义等）。评测在跑样本前用常规 `plan_review_action` / `apply_review_action` 复现它们，所以运行日志里有这次确认，而语料本身不依赖任何手工改过的状态目录。

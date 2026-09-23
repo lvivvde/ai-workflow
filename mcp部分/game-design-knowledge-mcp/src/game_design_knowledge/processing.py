@@ -150,8 +150,8 @@ DEFAULT_PIPELINE: tuple[StageDefinition, ...] = (
         capability_pack="core",
         required=False,
         handler="pipeline.structure_relations",
-        ruleset_version="flow-arrow-v1",
-        output_schema_version="flow-arrow-v1",
+        ruleset_version="flow-arrow-v2",
+        output_schema_version="flow-arrow-v2",
     ),
     StageDefinition(
         name="notation",

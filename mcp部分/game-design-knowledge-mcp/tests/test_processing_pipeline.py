@@ -33,9 +33,9 @@ except ModuleNotFoundError:  # pragma: no cover - discover imports tests as modu
     from document_fixtures import write_docx
 
 try:
-    from tests.document_fixtures import png_bytes, write_docx_with_image
+    from tests.document_fixtures import arrow_png, write_docx_with_image
 except ModuleNotFoundError:  # pragma: no cover - discover imports tests as modules
-    from document_fixtures import png_bytes, write_docx_with_image
+    from document_fixtures import arrow_png, write_docx_with_image
 
 try:
     from tests.host_stubs import no_ocr_engine_installed
@@ -300,7 +300,11 @@ class StagedProcessingTests(unittest.TestCase):
             project_root = workspace / "project"
             index_directory = project_root / ".index" / "knowledge"
             write_docx_with_image(
-                project_root / "docs" / "玩法.docx", "购买按钮", png_bytes()
+                project_root / "docs" / "玩法.docx",
+                "购买按钮",
+                # The drawn arrow points down and the transcription reads ``↓``,
+                # so the direction the stage confirms is corroborated (issue #28).
+                arrow_png("down", box=(135, 30, 10, 20), size=(240, 110)),
             )
 
             run = run_pipeline(
@@ -339,7 +343,7 @@ class StagedProcessingTests(unittest.TestCase):
             relations = structure_relations(context)
 
             self.assertEqual(relations.execution_status, "succeeded")
-            self.assertEqual(relations.payload["ruleset_version"], "flow-arrow-v1")
+            self.assertEqual(relations.payload["ruleset_version"], "flow-arrow-v2")
             self.assertEqual(relations.payload["claim_boundary"], CLAIM_BOUNDARY)
             self.assertFalse(relations.payload["visual_model_required"])
             self.assertEqual(

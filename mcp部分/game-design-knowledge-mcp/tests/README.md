@@ -42,7 +42,8 @@ V2-12 评测语料与发布门槛的回归测试：
 
 布局与纵向箭头关系的回归测试：
 
-- `test_layout.py`：规格样例逐条对照——直线流程、空白行、缩进、分支、连续箭头、缺失端点、多列边界；确认的 `next_step` 必须能回溯到箭头和两个 Flow Node，缩进、装饰箭头与跨容器近邻都不产生 confirmed 关系，箭头块不会被当成 Flow Node。
+- `test_layout.py`：规格样例逐条对照——直线流程、空白行、缩进、分支、连续箭头、缺失端点、多列边界；确认的 `next_step` 必须能回溯到箭头和两个 Flow Node，缩进、装饰箭头与跨容器近邻都不产生 confirmed 关系，箭头块不会被当成 Flow Node；**方向只有被块自己的像素佐证才算 confirmed**——画成向下却被读成 `↑↑` 只能是 candidate + `direction_conflict`，读不到墨迹是 candidate + `direction_unverified`，结构性问题（分叉等）优先于方向问题。
+- `test_ink.py`：箭头方向从箭头块自己的像素量——四个方向画出来都能读回、最宽墨迹带的位置与方向一致、**引擎把向下箭头镜像成 `↑↑` 时像素一个字节都没变**（issue #28 的回归）、只看箭头块、没有边界框或图片读不开时不给读数、块形状与转写声称的轴不符时不量、太对称的块不给方向、调用方声明的方向必须是真的方向。
 - `test_layout_index.py`：注入 provider 后检查落库结果——`layout_runs` / `layout_elements` / `structural_relations` 的端点、几何依据、规则版本与分列置信度；没有区域时仍写空 run；删除文档连带清掉布局行；`index_status` 的 `layout_*` 明细；缺表的老索引报 0 而不是报错；`get_image_context` 能把顺序与关系读回来。
 
 分层证据包、资产访问与独立图片导入的回归测试：

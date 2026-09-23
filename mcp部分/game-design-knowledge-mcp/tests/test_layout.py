@@ -21,10 +21,13 @@ from game_design_knowledge.flow_notation import (
     UNCERTAINTY_BRANCH,
     UNCERTAINTY_CONSECUTIVE_ARROW,
     UNCERTAINTY_CROSS_COLUMN,
+    UNCERTAINTY_DIRECTION_CONFLICT,
+    UNCERTAINTY_DIRECTION_UNVERIFIED,
     UNCERTAINTY_MISSING_ENDPOINT,
     build_relations,
     summarize_relations,
 )
+from game_design_knowledge.ink import InkReading
 from game_design_knowledge.layout import (
     ARROW_KIND,
     TEXT_KIND,
@@ -52,6 +55,18 @@ def region(
         reading_order=index,
         text_confidence=confidence,
     )
+
+
+def down_arrow_ink(index: int) -> dict[int, InkReading]:
+    """What ``ink.arrow_ink_readings`` reports for a block drawn pointing down."""
+
+    return {index: InkReading.measured("down", 0.71)}
+
+
+def right_arrow_ink(index: int) -> dict[int, InkReading]:
+    """The same, for a block drawn pointing right."""
+
+    return {index: InkReading.measured("right", 0.72)}
 
 
 class ArrowDirectionTests(unittest.TestCase):
@@ -172,7 +187,7 @@ class FlowNotationTests(unittest.TestCase):
             )
         )
 
-        relations = build_relations(order)
+        relations = build_relations(order, ink=down_arrow_ink(1))
 
         self.assertEqual(len(relations), 1)
         relation = relations[0]
@@ -186,6 +201,11 @@ class FlowNotationTests(unittest.TestCase):
         self.assertEqual(relation.geometry_confidence, 1.0)
         self.assertEqual(relation.ocr_confidence, 0.9)
         self.assertIn("arrow", relation.geometry_basis)
+        self.assertIn(
+            "agrees with the transcription",
+            relation.geometry_basis,
+            "a confirmed step says what corroborated the direction it asserts",
+        )
         self.assertIn("visible layout only", relation.as_payload()["claim_boundary"])
         self.assertIn("causality", CLAIM_BOUNDARY)
 
@@ -198,7 +218,7 @@ class FlowNotationTests(unittest.TestCase):
             )
         )
 
-        relation = build_relations(order)[0]
+        relation = build_relations(order, ink=down_arrow_ink(1))[0]
 
         self.assertEqual(relation.status, CONFIRMED)
         self.assertEqual((relation.source_region, relation.target_region), (0, 2))
@@ -213,7 +233,7 @@ class FlowNotationTests(unittest.TestCase):
             )
         )
 
-        relation = build_relations(order)[0]
+        relation = build_relations(order, ink=down_arrow_ink(1))[0]
 
         self.assertEqual(relation.status, CANDIDATE)
         self.assertEqual(
@@ -309,7 +329,7 @@ class FlowNotationTests(unittest.TestCase):
             )
         )
 
-        relation = build_relations(order)[0]
+        relation = build_relations(order, ink=right_arrow_ink(1))[0]
 
         self.assertEqual(relation.kind, POINTS_TO)
         self.assertEqual(relation.status, CONFIRMED)
@@ -325,7 +345,7 @@ class FlowNotationTests(unittest.TestCase):
             )
         )
 
-        summary = summarize_relations(build_relations(order))
+        summary = summarize_relations(build_relations(order, ink=down_arrow_ink(1)))
 
         self.assertEqual(summary["relations"], 2)
         self.assertEqual(summary["confirmed_relations"], 1)
@@ -347,6 +367,106 @@ class FlowNotationTests(unittest.TestCase):
         self.assertEqual(kinds[1], ARROW_KIND)
         self.assertEqual(kinds[0], TEXT_KIND)
         self.assertEqual(kinds[2], TEXT_KIND)
+
+
+class ArrowDirectionEvidenceTests(unittest.TestCase):
+    """What a confirmed direction rests on, and what happens without one (#28).
+
+    The transcription alone used to be enough, and the deployed engine was
+    measured reading a block drawn ``↓↓`` as ``↑↑`` -- which reverses the flow
+    rather than adding noise. These tests pin the two ways that can no longer
+    pass as a confirmed step.
+    """
+
+    def test_a_down_arrow_the_engine_read_as_up_is_never_confirmed(self) -> None:
+        order = build_reading_order(
+            (
+                region(0, "点击购买", x=100.0, y=0.0, width=80.0),
+                region(1, "↑↑", x=135.0, y=30.0, width=10.0),
+                region(2, "扣除钻石", x=100.0, y=60.0, width=80.0),
+            )
+        )
+
+        relation = build_relations(order, ink=down_arrow_ink(1))[0]
+
+        self.assertEqual(relation.status, CANDIDATE)
+        self.assertEqual(relation.uncertainty, UNCERTAINTY_DIRECTION_CONFLICT)
+        self.assertEqual(
+            relation.direction,
+            "up",
+            "the relation still reports the direction the transcription claimed",
+        )
+        self.assertEqual(
+            (relation.source_region, relation.target_region),
+            (2, 0),
+            "and its endpoints follow that claim, which is why it cannot stand",
+        )
+        self.assertEqual(relation.geometry_confidence, 0.5)
+        self.assertIn(
+            "the ink points down while the transcription reads up",
+            relation.geometry_basis,
+            "the reader is told which two readings disagree",
+        )
+        self.assertIn("may be the other way round", relation.detail)
+
+    def test_an_arrow_block_with_no_readable_ink_stays_a_candidate(self) -> None:
+        vertical = build_reading_order(
+            (
+                region(0, "点击购买", x=100.0, y=0.0, width=80.0),
+                region(1, "↓", x=135.0, y=30.0, width=10.0),
+                region(2, "扣除钻石", x=100.0, y=60.0, width=80.0),
+            )
+        )
+
+        relation = build_relations(vertical)[0]
+
+        self.assertEqual(relation.status, CANDIDATE)
+        self.assertEqual(relation.uncertainty, UNCERTAINTY_DIRECTION_UNVERIFIED)
+        self.assertEqual((relation.source_region, relation.target_region), (0, 2))
+        self.assertIn("nothing this build can measure", relation.geometry_basis)
+        self.assertIn(
+            "will not confirm a direction nothing in the picture backs up",
+            relation.detail,
+        )
+
+        horizontal = build_reading_order(
+            (
+                region(0, "点击按钮", x=0.0, y=0.0, width=80.0),
+                region(1, "→", x=100.0, y=2.0, width=20.0),
+                region(2, "打开面板", x=140.0, y=0.0, width=80.0),
+            )
+        )
+
+        side_by_side = build_relations(horizontal)[0]
+
+        self.assertEqual(side_by_side.status, CANDIDATE)
+        self.assertEqual(side_by_side.uncertainty, UNCERTAINTY_DIRECTION_UNVERIFIED)
+
+    def test_a_structural_problem_outranks_a_direction_problem(self) -> None:
+        order = build_reading_order(
+            (
+                region(0, "开始", x=40.0, y=0.0, width=200.0),
+                region(1, "↓", x=60.0, y=30.0, width=10.0),
+                region(2, "↓", x=200.0, y=30.0, width=10.0),
+                region(3, "结果", x=40.0, y=60.0, width=200.0),
+            )
+        )
+        ink = {
+            index: InkReading.measured("up", 0.28) for index in (1, 2)
+        }
+
+        relation = build_relations(order, ink=ink)[0]
+
+        self.assertEqual(
+            relation.uncertainty,
+            UNCERTAINTY_BRANCH,
+            "the shape of the row is why no step is claimed, not the ink",
+        )
+        self.assertIn(
+            "the ink points up while the transcription reads down",
+            relation.geometry_basis,
+            "the disagreement is still recorded, it just is not the headline",
+        )
 
 
 if __name__ == "__main__":

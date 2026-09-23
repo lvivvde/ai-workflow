@@ -22,9 +22,9 @@ import unittest
 from mcp import Client
 
 try:
-    from tests.document_fixtures import png_bytes, write_docx_with_image
+    from tests.document_fixtures import arrow_png, png_bytes, write_docx_with_image
 except ModuleNotFoundError:  # pragma: no cover - discover imports tests as modules
-    from document_fixtures import png_bytes, write_docx_with_image
+    from document_fixtures import arrow_png, png_bytes, write_docx_with_image
 from game_design_knowledge.evidence_package import EVIDENCE_PACKAGE_VERSION
 from game_design_knowledge.indexer import index_documents
 from game_design_knowledge.ocr_regions import (
@@ -92,7 +92,11 @@ class EvidencePackageMcpTests(unittest.TestCase):
         self.root = Path(self._temporary.name)
         self.index_directory = self.root / ".index" / "knowledge"
         write_docx_with_image(
-            self.root / "docs" / "docx" / "loop.docx", PARAGRAPH, png_bytes()
+            self.root / "docs" / "docx" / "loop.docx",
+            PARAGRAPH,
+            # The drawn arrow points down and the transcription reads ``↓``, so
+            # the step ``flow_observation`` describes is corroborated (issue #28).
+            arrow_png("down", box=(135, 30, 10, 20), size=(240, 110)),
         )
         index_documents(
             self.root,

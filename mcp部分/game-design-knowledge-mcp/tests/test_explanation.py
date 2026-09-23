@@ -166,7 +166,7 @@ def next_step_relation() -> dict[str, object]:
         "uncertainty": None,
         "geometry_confidence": 0.9,
         "ocr_confidence": 0.93,
-        "rule_version": "flow-arrow-v1",
+        "rule_version": "flow-arrow-v2",
         "claim_boundary": "geometry only",
     }
 

@@ -8,26 +8,38 @@ only when all of this holds (issue #3, spec #11 3.5):
 * it is alone in its row, so two arrows never read as one step;
 * exactly one aligned text block above and one below, with no arrow run in
   between;
-* both endpoints sit in the same column and overlap nothing.
+* both endpoints sit in the same column and overlap nothing;
+* **the direction holds up**: the block's own pixels point the same way the
+  transcription says (issue #28).
+
+The last condition is what keeps a reversed chain out of the index. Which way an
+arrow points decides which block is the source and which is the target, so a
+mirrored reading does not merely add noise: it reverses the flow. The deployed
+core engine was measured mirroring ``↓↓`` into ``↑↑`` at confidences that
+overlap the ones it gets right, so the transcription alone cannot carry that
+claim -- ``ink.py`` measures the block's ink, and this module requires the two
+readings to agree before it confirms anything.
 
 Everything else is emitted as a ``candidate`` with the reason it could not be
 confirmed, and every relation records its endpoints, the regions that support
 it, the geometric basis, the rule version, and two separate confidences.
 
 A confirmed ``next_step`` says one thing: this block sits below that block with
-an arrow between them. It is not a claim about causality, runtime order, or the
-author's intent, and indentation never creates a parent/child relation.
+an arrow between them, pointing the way the picture shows. It is not a claim
+about causality, runtime order, or the author's intent, and indentation never
+creates a parent/child relation.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
+from .ink import InkReading
 from .layout import ReadingOrder, VisualElement
 
 
-RELATION_RULESET_VERSION = "flow-arrow-v1"
+RELATION_RULESET_VERSION = "flow-arrow-v2"
 
 RELATION_KINDS = ("next_step", "points_to")
 RELATION_STATUSES = ("confirmed", "candidate")
@@ -43,6 +55,8 @@ UNCERTAINTY_MISSING_ENDPOINT = "missing_endpoint"
 UNCERTAINTY_CONSECUTIVE_ARROW = "consecutive_arrow"
 UNCERTAINTY_CROSS_COLUMN = "cross_column"
 UNCERTAINTY_OVERLAPPING_LAYOUT = "overlapping_layout"
+UNCERTAINTY_DIRECTION_CONFLICT = "direction_conflict"
+UNCERTAINTY_DIRECTION_UNVERIFIED = "direction_unverified"
 RELATION_UNCERTAINTIES = (
     "",
     UNCERTAINTY_AMBIGUOUS_DIRECTION,
@@ -51,14 +65,17 @@ RELATION_UNCERTAINTIES = (
     UNCERTAINTY_CONSECUTIVE_ARROW,
     UNCERTAINTY_CROSS_COLUMN,
     UNCERTAINTY_OVERLAPPING_LAYOUT,
+    UNCERTAINTY_DIRECTION_CONFLICT,
+    UNCERTAINTY_DIRECTION_UNVERIFIED,
 )
 
 #: Attached to every payload so a reader cannot mistake a visible adjacency for
 #: a statement about why the flow exists.
 CLAIM_BOUNDARY = (
     "A relation records visible layout only: which block sits above or beside "
-    "which, with an arrow between them. It is not evidence of causality, "
-    "runtime dependency, prerequisites, or design intent."
+    "which, with an arrow between them pointing the way the block's own ink and "
+    "its transcription agree on. It is not evidence of causality, runtime "
+    "dependency, prerequisites, or design intent."
 )
 
 #: How many rows to look past while resolving an endpoint.
@@ -120,12 +137,23 @@ class _Endpoint:
     basis: str
 
 
-def build_relations(order: ReadingOrder) -> tuple[StructuralRelation, ...]:
-    """Every relation this build is willing to report for one image."""
+def build_relations(
+    order: ReadingOrder,
+    *,
+    ink: Mapping[int, InkReading] | None = None,
+) -> tuple[StructuralRelation, ...]:
+    """Every relation this build is willing to report for one image.
+
+    ``ink`` maps a region index to the direction measured from that block's own
+    pixels (``ink.arrow_ink_readings``). Without a reading for an arrow block the
+    direction rests on the transcription alone, and the relation that would need
+    it stays a ``candidate`` -- see the module docstring.
+    """
 
     if not order.elements:
         return ()
     rows = _rows_by_index(order)
+    readings = ink or {}
     relations: list[StructuralRelation] = []
     for element in order.elements:
         if not element.is_arrow or element.bbox is None:
@@ -133,11 +161,12 @@ def build_relations(order: ReadingOrder) -> tuple[StructuralRelation, ...]:
         if element.direction == "mixed":
             relations.append(_ambiguous_arrow(element))
             continue
+        reading = readings.get(element.region_index)
         if element.direction in {"down", "up"}:
-            relations.append(_vertical_relation(order, rows, element))
+            relations.append(_vertical_relation(order, rows, element, reading))
             continue
         if element.direction in {"left", "right"}:
-            relations.append(_horizontal_relation(rows, element))
+            relations.append(_horizontal_relation(rows, element, reading))
     return tuple(relations)
 
 
@@ -167,10 +196,61 @@ def _ambiguous_arrow(arrow: VisualElement) -> StructuralRelation:
     )
 
 
+def _direction_check(
+    arrow: VisualElement, reading: InkReading | None
+) -> tuple[str, str]:
+    """Whether the picture backs up the direction the transcription claims.
+
+    Returns the uncertainty code that applies -- ``""`` when the block's own ink
+    agrees -- and the clause every relation carries so a reader can see what the
+    direction claim rests on. The transcription alone is not enough: this engine
+    was measured mirroring arrow blocks at confidences indistinguishable from
+    the ones it gets right, so a direction nobody corroborated is reported as
+    unverified rather than confirmed (issue #28).
+    """
+
+    if reading is None:
+        return (
+            UNCERTAINTY_DIRECTION_UNVERIFIED,
+            (
+                "nothing this build can measure about the block corroborates "
+                "which way it points"
+            ),
+        )
+    if reading.direction == arrow.direction:
+        return "", f"{reading.basis}, which agrees with the transcription"
+    return (
+        UNCERTAINTY_DIRECTION_CONFLICT,
+        (
+            f"{reading.basis}, so the ink points {reading.direction} while the "
+            f"transcription reads {arrow.direction}"
+        ),
+    )
+
+
+def _direction_detail(direction: str, reading: InkReading | None) -> str:
+    """Why a structurally clean arrow did not become a confirmed step."""
+
+    if reading is None:
+        return (
+            f"The arrow is its own block with one aligned block on each side, but "
+            f"the transcription reading {direction} is the only evidence for the "
+            "direction, and this build will not confirm a direction nothing in "
+            "the picture backs up."
+        )
+    return (
+        f"The block's own ink points {reading.direction} while the transcription "
+        f"reads {direction}, so the two disagree about which way this arrow "
+        "points: no direction is claimed. The endpoints recorded here follow the "
+        "transcription and may be the other way round."
+    )
+
+
 def _vertical_relation(
     order: ReadingOrder,
     rows: dict[int, list[VisualElement]],
     arrow: VisualElement,
+    reading: InkReading | None,
 ) -> StructuralRelation:
     below = _resolve_endpoint(rows, arrow, below=True)
     above = _resolve_endpoint(rows, arrow, below=False)
@@ -183,9 +263,10 @@ def _vertical_relation(
         for member in rows.get(arrow.row, ())
         if member.is_arrow and member.region_index != arrow.region_index
     ]
+    direction_uncertainty, direction_clause = _direction_check(arrow, reading)
     basis = (
         f"arrow block {arrow.region_index} points {arrow.direction}; "
-        f"above: {above.basis}; below: {below.basis}"
+        f"{direction_clause}; above: {above.basis}; below: {below.basis}"
     )
     relation_uncertainty = ""
     detail = (
@@ -224,6 +305,9 @@ def _vertical_relation(
     elif _overlaps_any(arrow, source, target):
         relation_uncertainty = UNCERTAINTY_OVERLAPPING_LAYOUT
         detail = "An endpoint box overlaps the arrow box, so the layout is not clean."
+    elif direction_uncertainty:
+        relation_uncertainty = direction_uncertainty
+        detail = _direction_detail(arrow.direction, reading)
     status = CONFIRMED if not relation_uncertainty else CANDIDATE
     return StructuralRelation(
         kind=NEXT_STEP,
@@ -243,6 +327,7 @@ def _vertical_relation(
 def _horizontal_relation(
     rows: dict[int, list[VisualElement]],
     arrow: VisualElement,
+    reading: InkReading | None,
 ) -> StructuralRelation:
     members = [member for member in rows.get(arrow.row, ())]
     left = sorted(
@@ -268,6 +353,7 @@ def _horizontal_relation(
     )
     source = left[0] if left else None
     target = right[0] if right else None
+    direction_uncertainty, direction_clause = _direction_check(arrow, reading)
     uncertainty = ""
     if len(left) > 1 or len(right) > 1:
         uncertainty = UNCERTAINTY_BRANCH
@@ -283,6 +369,9 @@ def _horizontal_relation(
             "A text block sits on each side of the arrow inside one row, so the "
             "picture shows which one points at which."
         )
+    if not uncertainty and direction_uncertainty:
+        uncertainty = direction_uncertainty
+        detail = _direction_detail(arrow.direction, reading)
     status = CONFIRMED if not uncertainty else CANDIDATE
     return StructuralRelation(
         kind=POINTS_TO,
@@ -293,7 +382,7 @@ def _horizontal_relation(
         direction=arrow.direction,
         geometry_basis=(
             f"arrow block {arrow.region_index} points {arrow.direction} inside row "
-            f"{arrow.row}"
+            f"{arrow.row}; {direction_clause}"
         ),
         detail=detail,
         uncertainty=uncertainty,
@@ -494,6 +583,8 @@ __all__ = [
     "UNCERTAINTY_BRANCH",
     "UNCERTAINTY_CONSECUTIVE_ARROW",
     "UNCERTAINTY_CROSS_COLUMN",
+    "UNCERTAINTY_DIRECTION_CONFLICT",
+    "UNCERTAINTY_DIRECTION_UNVERIFIED",
     "UNCERTAINTY_MISSING_ENDPOINT",
     "UNCERTAINTY_OVERLAPPING_LAYOUT",
     "build_relations",

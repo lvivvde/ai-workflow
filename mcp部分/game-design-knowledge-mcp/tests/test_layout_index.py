@@ -19,9 +19,9 @@ import unittest
 from mcp import Client
 
 try:
-    from tests.document_fixtures import png_bytes, write_docx_with_image
+    from tests.document_fixtures import arrow_png, write_docx_with_image
 except ModuleNotFoundError:  # pragma: no cover - discover imports tests as modules
-    from document_fixtures import png_bytes, write_docx_with_image
+    from document_fixtures import arrow_png, write_docx_with_image
 from game_design_knowledge.flow_notation import (
     CLAIM_BOUNDARY,
     RELATION_RULESET_VERSION,
@@ -39,6 +39,8 @@ from game_design_knowledge.shared_index import index_status_for_database
 def region(
     index: int, text: str, x: float, y: float, *, confidence: float = 0.93
 ) -> OcrRegion:
+    """One region of the fixture picture; the ``↓`` box matches the drawn arrow."""
+
     return OcrRegion(
         index=index,
         text=text,
@@ -75,7 +77,11 @@ class LayoutIndexTests(unittest.TestCase):
         self.root = Path(self._temporary.name)
         self.index_directory = self.root / ".index" / "knowledge"
         write_docx_with_image(
-            self.root / "docs" / "玩法.docx", "购买按钮", png_bytes()
+            self.root / "docs" / "玩法.docx",
+            "购买按钮",
+            # The arrow block's pixels point down, and the transcription below
+            # reads ``↓``, so the two readings corroborate each other (issue #28).
+            arrow_png("down", box=(135, 30, 10, 20), size=(240, 110)),
         )
 
     def index(self, observation: RegionObservation | None = None) -> dict[str, object]:

@@ -86,7 +86,7 @@ def make_sample(**overrides: object) -> Sample:
         "annotation": {
             "annotators": ["ann-1", "ann-2"],
             "adjudicated": True,
-            "guide_version": "eval-guide-0.1",
+            "guide_version": "eval-guide-0.2",
         },
     }
     payload.update(overrides)

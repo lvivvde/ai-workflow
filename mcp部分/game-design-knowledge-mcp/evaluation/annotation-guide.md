@@ -1,6 +1,6 @@
 # Annotation Guide
 
-本文件是标注协议的可执行说明，版本 `eval-guide-0.1`。语料 `manifest.json` 的 `guide_version` 与每个样本的 `annotation.guide_version` 必须等于这个版本号；规则一改就要升版本，并让所有语料重新刷新指纹，因为旧报告的标签已经不是同一套标签。
+本文件是标注协议的可执行说明，版本 `eval-guide-0.2`。语料 `manifest.json` 的 `guide_version` 与每个样本的 `annotation.guide_version` 必须等于这个版本号；规则一改就要升版本，并让所有语料重新刷新指纹，因为旧报告的标签已经不是同一套标签。`eval-guide-0.2` 新增第 11 节的图片语料规则：合成图必须像素里有字、箭头只画引擎能可靠转写的形状、`relations` 的方向由独立箭头块决定。
 
 标注的对象是**样本**（`samples/*.json`），不是索引产物。标注只写「这份材料说的是什么」和「一个正确响应必须做到什么」，不写「当前实现输出什么」，否则 Golden Set 会被调参污染。
 
@@ -46,7 +46,7 @@
   "capabilities": ["core"],
   "expected": { },
   "annotation": { "annotators": ["solo-annotator-1"], "adjudicated": false,
-    "guide_version": "eval-guide-0.1" },
+    "guide_version": "eval-guide-0.2" },
   "notes": "为什么这条样本存在"
 }
 ```
@@ -171,7 +171,7 @@
 
 ## 11. 图片语料：合成图与标注必须逐字一致
 
-随仓语料的图片是**合成的**，但必须是**像素里真有字**的合成图。1x1 占位图会让 `ocr_transcription` / `layout_regions` / `reading_order_relations` 三层永远没有分母：标注写得再全，也只能证明"链路跑通、区域被记录"（这正是 `golden_set@0.2.0` 之前的状态）。
+随仓语料的图片是**合成的**，但必须是**像素里真有字**的合成图。1x1 占位图会让 `ocr_transcription` / `layout_regions` / `reading_order_relations` 三层永远没有分母：标注写得再全，也只能证明"链路跑通、区域被记录"（这正是 `golden_set@0.3.0` 之前的状态）。
 
 ### 11.1 图片怎么来
 

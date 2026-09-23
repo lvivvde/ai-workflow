@@ -121,7 +121,7 @@ uv run python tools/evaluate.py --gates D:\controlled-eval\gates.json
 1. **机器上有可用引擎**：装了核心 OCR 引擎（离线 RapidOCR 模型，或 Tesseract 兼容回退）后，索引才会产生 OCR 区域；
 2. **图片里真的有字**：图片文档要引用 `assets/` 下像素里真有字符的合成 PNG（规则见 [`annotation-guide.md` §11](annotation-guide.md)）。1x1 占位图会让这三层永远没有分母：即便机器装了引擎，也只能证明"链路跑通、区域被记录"，`cer` / `critical_token_coverage` 谈不上有分母。
 
-随仓语料两条都已满足（`development_set@0.2.0`、`golden_set@0.3.0` 起），因此在装了引擎的机器上三层都是 `measured`：标注样本数与区域数够门槛比较，`cer`、`critical_token_coverage`、`layout_elements`、`annotated_relation_scores` 都由同一次运行给出。
+随仓语料两条都已满足（`development_set@0.3.0`、`golden_set@0.4.0` 起，同属标注协议 `eval-guide-0.2`），因此在装了引擎的机器上三层都是 `measured`：标注样本数与区域数够门槛比较，`cer`、`critical_token_coverage`、`layout_elements`、`annotated_relation_scores` 都由同一次运行给出。
 
 判定行为不因上面哪一条缺失而改变：
 

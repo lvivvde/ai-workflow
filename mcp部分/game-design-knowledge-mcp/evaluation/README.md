@@ -5,7 +5,7 @@
 ```text
 evaluation/
 ├── README.md
-├── annotation-guide.md # 标注协议（guide_version eval-guide-0.1）
+├── annotation-guide.md # 标注协议（guide_version eval-guide-0.2）
 ├── quality-gates.json  # 发布门槛定义（quality-gates-0.1）
 ├── quality-gates.md    # 门槛怎么判、失败怎么归因
 ├── corpora/            # 版本化的脱敏/合成语料

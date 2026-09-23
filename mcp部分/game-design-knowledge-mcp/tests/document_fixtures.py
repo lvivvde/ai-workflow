@@ -133,23 +133,7 @@ def write_xlsx_with_image(
 def png_bytes(width: int = 8, height: int = 8, colour: tuple[int, int, int] = (10, 20, 30)) -> bytes:
     """A real, decodable PNG. No image library is needed to build one."""
 
-    def chunk(tag: bytes, payload: bytes) -> bytes:
-        return (
-            struct.pack(">I", len(payload))
-            + tag
-            + payload
-            + struct.pack(">I", zlib.crc32(tag + payload) & 0xFFFFFFFF)
-        )
-
-    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
-    row = bytes(colour) * width
-    raw = b"".join(b"\x00" + row for _ in range(height))
-    return (
-        b"\x89PNG\r\n\x1a\n"
-        + chunk(b"IHDR", header)
-        + chunk(b"IDAT", zlib.compress(raw))
-        + chunk(b"IEND", b"")
-    )
+    return _png(width, height, [bytes(colour) * width] * height)
 
 
 def write_png(path: Path, **kwargs: object) -> None:

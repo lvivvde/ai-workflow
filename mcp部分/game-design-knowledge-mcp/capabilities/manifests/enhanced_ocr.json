@@ -5,7 +5,10 @@
   "model_artifacts": [],
   "name": "enhanced_ocr",
   "notes": [
-    "This pack's Python closure is not pinned yet: the declared paddlex==2.4.4 does not exist on the index, so the closure cannot be resolved and a bundle cannot install this pack offline. Correcting the pin is a PaddleOCR generation decision, not a mechanical fix."
+    "Targets the PaddleOCR 3.x line, because PP-StructureV3 only exists there and paddlepaddle 3.3.1 is the runtime paddlex 3.7.2 was built against. The handler's API call is generation-neutral: it prefers ``predict()`` and keeps the 2.x ``ocr()`` path.",
+    "paddlex hard-pins PyYAML==6.0.2 while core pins 6.0.3, and paddlex[ocr-core] brings opencv-contrib-python where core brings opencv-python. Two packs installed into one interpreter therefore end with only the later pack's literal pins satisfied; the closure check reads bundles, never an interpreter's installed set.",
+    "Declared sizes split the two halves: the bundle carries 211 MB of wheels, and the engine's own model files are not in it. PaddleX fetches those the first time a pipeline is built (192 MB, seven models, measured on Windows x64), so an air-gapped machine has to pre-place that cache; this pack does not pin those files yet.",
+    "The pinned paddlepaddle cannot lower these models through its oneDNN path: every PP-OCR version fails with ``ConvertPirAttribute2RuntimeAttribute not support [pir::ArrayAttribute<pir::DoubleAttribute>]``. The handler therefore constructs PaddleOCR with ``enable_mkldnn=False``, which trades CPU speed for an engine that runs."
   ],
   "optional": true,
   "purpose": "PaddleOCR and PP-StructureV3 for difficult OCR and richer layout analysis.",
@@ -14,30 +17,366 @@
       "distribution": "paddleocr",
       "module": "paddleocr",
       "purpose": "enhanced OCR",
-      "version": "2.9.1"
-    },
-    {
-      "distribution": "paddlepaddle",
-      "module": "paddle",
-      "purpose": "enhanced OCR runtime",
-      "version": "2.6.2"
+      "version": "3.7.0"
     },
     {
       "distribution": "paddlex",
       "module": "paddlex",
       "purpose": "layout analysis",
-      "version": "2.4.4"
+      "version": "3.7.2"
+    },
+    {
+      "distribution": "paddlepaddle",
+      "module": "paddle",
+      "purpose": "enhanced OCR runtime",
+      "version": "3.3.1"
     }
   ],
-  "python_dependencies": [],
+  "python_dependencies": [
+    {
+      "distribution": "aiohappyeyeballs",
+      "purpose": "aiohttp connection helpers",
+      "version": "2.7.1"
+    },
+    {
+      "distribution": "aiohttp",
+      "purpose": "PaddleOCR client transport",
+      "version": "3.14.3"
+    },
+    {
+      "distribution": "aiosignal",
+      "purpose": "aiohttp signal plumbing",
+      "version": "1.4.0"
+    },
+    {
+      "distribution": "aistudio-sdk",
+      "purpose": "PaddleX model source",
+      "version": "0.3.9"
+    },
+    {
+      "distribution": "annotated-types",
+      "purpose": "pydantic annotations",
+      "version": "0.8.0"
+    },
+    {
+      "distribution": "anyio",
+      "purpose": "httpx async backend",
+      "version": "4.15.1"
+    },
+    {
+      "distribution": "attrs",
+      "purpose": "ModelScope record types",
+      "version": "26.1.0"
+    },
+    {
+      "distribution": "bce-python-sdk",
+      "purpose": "ModelScope object storage",
+      "version": "0.9.79"
+    },
+    {
+      "distribution": "certifi",
+      "purpose": "TLS root certificates",
+      "version": "2026.7.22"
+    },
+    {
+      "distribution": "cffi",
+      "purpose": "cryptography bindings",
+      "version": "2.1.1"
+    },
+    {
+      "distribution": "chardet",
+      "purpose": "PaddleX text encoding detection",
+      "version": "7.6.0"
+    },
+    {
+      "distribution": "charset-normalizer",
+      "purpose": "requests encoding detection",
+      "version": "3.5.1"
+    },
+    {
+      "distribution": "click",
+      "purpose": "PaddleX console entry points",
+      "version": "8.5.0"
+    },
+    {
+      "distribution": "colorama",
+      "purpose": "click console colours",
+      "version": "0.4.6"
+    },
+    {
+      "distribution": "colorlog",
+      "purpose": "PaddleX console logging",
+      "version": "6.12.0"
+    },
+    {
+      "distribution": "crc32c",
+      "purpose": "ModelScope transfer checksums",
+      "version": "2.9.post0"
+    },
+    {
+      "distribution": "cryptography",
+      "purpose": "TLS for the model hosters",
+      "version": "50.0.1"
+    },
+    {
+      "distribution": "filelock",
+      "purpose": "PaddleX model cache locking",
+      "version": "4.0.1"
+    },
+    {
+      "distribution": "frozenlist",
+      "purpose": "aiohttp registry state",
+      "version": "1.8.0"
+    },
+    {
+      "distribution": "fsspec",
+      "purpose": "huggingface-hub filesystem layer",
+      "version": "2026.9.0"
+    },
+    {
+      "distribution": "future",
+      "purpose": "bce-python-sdk compatibility",
+      "version": "1.0.0"
+    },
+    {
+      "distribution": "h11",
+      "purpose": "HTTP/1.1 protocol",
+      "version": "0.16.0"
+    },
+    {
+      "distribution": "hf-xet",
+      "purpose": "huggingface-hub transfers",
+      "version": "1.6.0"
+    },
+    {
+      "distribution": "httpcore",
+      "purpose": "httpx transport",
+      "version": "1.0.9"
+    },
+    {
+      "distribution": "httpx",
+      "purpose": "PaddlePaddle HTTP client",
+      "version": "0.27.2"
+    },
+    {
+      "distribution": "huggingface-hub",
+      "purpose": "PaddleX model source",
+      "version": "1.32.0"
+    },
+    {
+      "distribution": "idna",
+      "purpose": "internationalized domain names",
+      "version": "3.20"
+    },
+    {
+      "distribution": "imagesize",
+      "purpose": "PaddleX image metadata",
+      "version": "2.0.1"
+    },
+    {
+      "distribution": "modelscope",
+      "purpose": "PaddleX model source",
+      "version": "1.40.1"
+    },
+    {
+      "distribution": "modelscope-hub",
+      "purpose": "ModelScope hub transfers",
+      "version": "0.4.5"
+    },
+    {
+      "distribution": "multidict",
+      "purpose": "aiohttp headers",
+      "version": "6.9.1"
+    },
+    {
+      "distribution": "networkx",
+      "purpose": "PaddlePaddle graph utilities",
+      "version": "3.7"
+    },
+    {
+      "distribution": "numpy",
+      "purpose": "array backend shared with core",
+      "version": "1.26.4"
+    },
+    {
+      "distribution": "opencv-contrib-python",
+      "purpose": "PaddleX image operators",
+      "version": "4.10.0.84"
+    },
+    {
+      "distribution": "opt-einsum",
+      "purpose": "PaddlePaddle tensor contraction",
+      "version": "3.3.0"
+    },
+    {
+      "distribution": "packaging",
+      "purpose": "version parsing",
+      "version": "26.3"
+    },
+    {
+      "distribution": "pandas",
+      "purpose": "PaddleX tabular results",
+      "version": "3.0.6"
+    },
+    {
+      "distribution": "pillow",
+      "purpose": "image decoding",
+      "version": "12.3.0"
+    },
+    {
+      "distribution": "prettytable",
+      "purpose": "PaddleX console tables",
+      "version": "3.18.0"
+    },
+    {
+      "distribution": "propcache",
+      "purpose": "aiohttp property cache",
+      "version": "0.5.4"
+    },
+    {
+      "distribution": "protobuf",
+      "purpose": "PaddlePaddle serialization",
+      "version": "7.36.2"
+    },
+    {
+      "distribution": "psutil",
+      "purpose": "PaddleX resource reporting",
+      "version": "7.2.2"
+    },
+    {
+      "distribution": "py-cpuinfo",
+      "purpose": "PaddleX CPU capability report",
+      "version": "9.0.0"
+    },
+    {
+      "distribution": "pyclipper",
+      "purpose": "PaddleX polygon clipping",
+      "version": "1.4.0"
+    },
+    {
+      "distribution": "pycparser",
+      "purpose": "cffi parser",
+      "version": "3.0"
+    },
+    {
+      "distribution": "pycryptodome",
+      "purpose": "bce-python-sdk signing",
+      "version": "3.23.0"
+    },
+    {
+      "distribution": "pydantic",
+      "purpose": "PaddleX configuration models",
+      "version": "2.13.5"
+    },
+    {
+      "distribution": "pydantic-core",
+      "purpose": "pydantic core",
+      "version": "2.46.5"
+    },
+    {
+      "distribution": "pypdfium2",
+      "purpose": "PaddleX PDF input",
+      "version": "5.13.0"
+    },
+    {
+      "distribution": "python-bidi",
+      "purpose": "PaddleX text ordering",
+      "version": "0.6.11"
+    },
+    {
+      "distribution": "python-dateutil",
+      "purpose": "pandas timestamps",
+      "version": "2.9.0.post0"
+    },
+    {
+      "distribution": "pyyaml",
+      "purpose": "PaddleX pipeline configuration",
+      "version": "6.0.2"
+    },
+    {
+      "distribution": "requests",
+      "purpose": "PaddleX HTTP",
+      "version": "2.34.2"
+    },
+    {
+      "distribution": "ruamel.yaml",
+      "purpose": "PaddleX round-trip YAML",
+      "version": "0.19.1"
+    },
+    {
+      "distribution": "safetensors",
+      "purpose": "PaddlePaddle weight loading",
+      "version": "0.8.0"
+    },
+    {
+      "distribution": "setuptools",
+      "purpose": "PaddlePaddle on Python 3.12",
+      "version": "84.0.0"
+    },
+    {
+      "distribution": "shapely",
+      "purpose": "PaddleX geometry",
+      "version": "2.1.2"
+    },
+    {
+      "distribution": "six",
+      "purpose": "python-dateutil compatibility",
+      "version": "1.17.0"
+    },
+    {
+      "distribution": "sniffio",
+      "purpose": "async backend detection",
+      "version": "1.3.1"
+    },
+    {
+      "distribution": "tqdm",
+      "purpose": "ModelScope progress",
+      "version": "4.70.1"
+    },
+    {
+      "distribution": "typing-extensions",
+      "purpose": "typed public API",
+      "version": "4.16.0"
+    },
+    {
+      "distribution": "typing-inspection",
+      "purpose": "pydantic introspection",
+      "version": "0.4.4"
+    },
+    {
+      "distribution": "tzdata",
+      "purpose": "pandas timezone data",
+      "version": "2026.4"
+    },
+    {
+      "distribution": "ujson",
+      "purpose": "PaddleX JSON",
+      "version": "6.0.0"
+    },
+    {
+      "distribution": "urllib3",
+      "purpose": "requests transport",
+      "version": "2.8.0"
+    },
+    {
+      "distribution": "wcwidth",
+      "purpose": "prettytable column widths",
+      "version": "0.9.0"
+    },
+    {
+      "distribution": "yarl",
+      "purpose": "aiohttp URL handling",
+      "version": "1.25.1"
+    }
+  ],
   "requirements": {
     "cpu_cores": 8,
-    "free_disk_gb": 10.0,
+    "free_disk_gb": 4.0,
     "ram_gb": 16.0
   },
   "sizes_mb": {
-    "download": 980.0,
-    "installed": 4700.0
+    "download": 400.0,
+    "installed": 1030.0
   },
   "tier": "enhanced",
   "version": "1.0.0"

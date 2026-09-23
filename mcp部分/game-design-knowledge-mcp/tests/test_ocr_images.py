@@ -491,5 +491,45 @@ class PipelineOcrTests(ImageOcrTestCase):
         )
 
 
+class PaddleLanguageTests(unittest.TestCase):
+    """The enhanced engine is configured with Tesseract codes, not its own.
+
+    PaddleOCR has no language called ``chi``: ``ch`` is the model that reads
+    Chinese and Latin script, and anything this build does not know is passed
+    through so the engine names the language it cannot serve instead of a
+    different one being transcribed silently.
+    """
+
+    def paddle_language(self, configured: str) -> str:
+        from game_design_knowledge.ocr import (
+            LANGUAGE_ENVIRONMENT_VARIABLE,
+            _paddle_language,
+        )
+
+        with mock.patch.dict(
+            os.environ, {LANGUAGE_ENVIRONMENT_VARIABLE: configured}
+        ):
+            return _paddle_language()
+
+    def test_the_default_language_set_maps_to_the_chinese_model(self) -> None:
+        self.assertEqual(self.paddle_language("chi_sim+eng"), "ch")
+        self.assertEqual(self.paddle_language("eng+chi_sim"), "ch")
+        self.assertEqual(self.paddle_language(""), "ch")
+
+    def test_the_documented_languages_map_to_paddleocr_codes(self) -> None:
+        for configured, expected in (
+            ("eng", "en"),
+            ("chi_tra", "chinese_cht"),
+            ("jpn", "japan"),
+            ("kor", "korean"),
+            ("jpn+eng", "japan"),
+        ):
+            with self.subTest(language=configured):
+                self.assertEqual(self.paddle_language(configured), expected)
+
+    def test_a_language_this_build_does_not_know_is_passed_through(self) -> None:
+        self.assertEqual(self.paddle_language("xyz"), "xyz")
+
+
 if __name__ == "__main__":
     unittest.main()

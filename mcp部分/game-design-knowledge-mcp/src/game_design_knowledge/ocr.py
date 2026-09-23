@@ -51,6 +51,24 @@ LANGUAGE_ENVIRONMENT_VARIABLE = "GAME_DESIGN_OCR_LANG"
 MODEL_DIRECTORY_ENVIRONMENT_VARIABLE = "GAME_DESIGN_OCR_MODEL_DIR"
 TIMEOUT_ENVIRONMENT_VARIABLE = "GAME_DESIGN_OCR_TIMEOUT"
 
+#: The project configures Tesseract language codes (``chi_sim+eng`` by default)
+#: because that is what the compatibility fallback needs, but PaddleOCR has a
+#: set of its own: ``ch`` is the model that reads Chinese *and* Latin script,
+#: and there is no code called ``chi``. Only the codes this project documents
+#: are translated; anything else is passed through so PaddleOCR reports the
+#: language it cannot serve instead of this build quietly transcribing another.
+PADDLE_LANGUAGE_ALIASES = {
+    "chi_sim": "ch",
+    "chi_tra": "chinese_cht",
+    "eng": "en",
+    "jpn": "japan",
+    "kor": "korean",
+}
+#: Preferred first: ``ch`` already carries the Latin alphabet, so a run that
+#: mixes Chinese and English gets the superset model rather than the English
+#: one, which would return garbage for the Chinese half.
+PADDLE_CHINESE_LANGUAGES = ("ch", "chinese_cht")
+
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _JPEG_SIGNATURE = b"\xff\xd8\xff"
 IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".jpe"})
@@ -799,7 +817,15 @@ def _paddleocr_observation(
     def provider(path: Path) -> RegionObservation:
         from paddleocr import PaddleOCR  # type: ignore[import-not-found]
 
-        reader = PaddleOCR(use_angle_cls=True, lang=_paddle_language())
+        # The pinned runtime (paddlepaddle 3.3.1) cannot lower these models
+        # through its oneDNN path: every PP-OCR version fails there with
+        # "ConvertPirAttribute2RuntimeAttribute not support
+        # [pir::ArrayAttribute<pir::DoubleAttribute>]" before the first
+        # prediction. With the oneDNN path off the engine transcribes normally,
+        # so the pack trades some CPU speed for an engine that runs at all.
+        reader = PaddleOCR(
+            use_angle_cls=True, lang=_paddle_language(), enable_mkldnn=False
+        )
         if hasattr(reader, "predict"):
             boxes = _flatten_paddle_predict(reader.predict(str(path)))
         else:  # pragma: no cover - older PaddleOCR releases
@@ -820,10 +846,16 @@ def _paddleocr_observation(
 
 
 def _paddle_language() -> str:
-    """PaddleOCR names languages without Tesseract's ``+`` combination."""
+    """The PaddleOCR code for the language set this run was configured with."""
 
-    language = _language().replace("+", "_")
-    return language.split("_")[0] or "ch"
+    languages = [part.strip() for part in _language().split("+") if part.strip()]
+    mapped = [
+        PADDLE_LANGUAGE_ALIASES.get(language, language) for language in languages
+    ]
+    for chinese in PADDLE_CHINESE_LANGUAGES:
+        if chinese in mapped:
+            return chinese
+    return mapped[0] if mapped else PADDLE_CHINESE_LANGUAGES[0]
 
 
 def _flatten_paddle_predict(result: Any) -> list[Any]:

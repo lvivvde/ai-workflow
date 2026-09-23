@@ -244,19 +244,110 @@ ENHANCED_OCR_PACK = CapabilityPack(
     license="Apache-2.0 (PaddleOCR, PaddleX)",
     min_cpu_cores=8,
     min_ram_gb=16.0,
-    min_free_disk_gb=10.0,
-    download_size_mb=980.0,
-    installed_size_mb=4700.0,
+    min_free_disk_gb=4.0,
+    download_size_mb=400.0,
+    installed_size_mb=1030.0,
     python_artifacts=(
-        PythonArtifact("paddleocr", "paddleocr", "2.9.1", "enhanced OCR"),
-        PythonArtifact("paddlepaddle", "paddle", "2.6.2", "enhanced OCR runtime"),
-        PythonArtifact("paddlex", "paddlex", "2.4.4", "layout analysis"),
+        PythonArtifact("paddleocr", "paddleocr", "3.7.0", "enhanced OCR"),
+        PythonArtifact("paddlex", "paddlex", "3.7.2", "layout analysis"),
+        PythonArtifact("paddlepaddle", "paddle", "3.3.1", "enhanced OCR runtime"),
+    ),
+    # The pinned closure of the three artifacts above, resolved for Windows
+    # x64 / CPython 3.12 and recorded wheel by wheel in
+    # ``capabilities/locks/enhanced_ocr-win_amd64-cp312.json``. The pins that
+    # matter to a resolver are the ones that overlap core (numpy, protobuf,
+    # pillow, packaging, httpx), and they are the same versions core pins, so
+    # the two packs differ only where PaddleX leaves no choice.
+    python_dependencies=(
+        PythonDependency("aiohappyeyeballs", "2.7.1", "aiohttp connection helpers"),
+        PythonDependency("aiohttp", "3.14.3", "PaddleOCR client transport"),
+        PythonDependency("aiosignal", "1.4.0", "aiohttp signal plumbing"),
+        PythonDependency("aistudio-sdk", "0.3.9", "PaddleX model source"),
+        PythonDependency("annotated-types", "0.8.0", "pydantic annotations"),
+        PythonDependency("anyio", "4.15.1", "httpx async backend"),
+        PythonDependency("attrs", "26.1.0", "ModelScope record types"),
+        PythonDependency("bce-python-sdk", "0.9.79", "ModelScope object storage"),
+        PythonDependency("certifi", "2026.7.22", "TLS root certificates"),
+        PythonDependency("cffi", "2.1.1", "cryptography bindings"),
+        PythonDependency("chardet", "7.6.0", "PaddleX text encoding detection"),
+        PythonDependency("charset-normalizer", "3.5.1", "requests encoding detection"),
+        PythonDependency("click", "8.5.0", "PaddleX console entry points"),
+        PythonDependency("colorama", "0.4.6", "click console colours"),
+        PythonDependency("colorlog", "6.12.0", "PaddleX console logging"),
+        PythonDependency("crc32c", "2.9.post0", "ModelScope transfer checksums"),
+        PythonDependency("cryptography", "50.0.1", "TLS for the model hosters"),
+        PythonDependency("filelock", "4.0.1", "PaddleX model cache locking"),
+        PythonDependency("frozenlist", "1.8.0", "aiohttp registry state"),
+        PythonDependency("fsspec", "2026.9.0", "huggingface-hub filesystem layer"),
+        PythonDependency("future", "1.0.0", "bce-python-sdk compatibility"),
+        PythonDependency("h11", "0.16.0", "HTTP/1.1 protocol"),
+        PythonDependency("hf-xet", "1.6.0", "huggingface-hub transfers"),
+        PythonDependency("httpcore", "1.0.9", "httpx transport"),
+        PythonDependency("httpx", "0.27.2", "PaddlePaddle HTTP client"),
+        PythonDependency("huggingface-hub", "1.32.0", "PaddleX model source"),
+        PythonDependency("idna", "3.20", "internationalized domain names"),
+        PythonDependency("imagesize", "2.0.1", "PaddleX image metadata"),
+        PythonDependency("modelscope", "1.40.1", "PaddleX model source"),
+        PythonDependency("modelscope-hub", "0.4.5", "ModelScope hub transfers"),
+        PythonDependency("multidict", "6.9.1", "aiohttp headers"),
+        PythonDependency("networkx", "3.7", "PaddlePaddle graph utilities"),
+        PythonDependency("numpy", "1.26.4", "array backend shared with core"),
+        PythonDependency("opencv-contrib-python", "4.10.0.84", "PaddleX image operators"),
+        PythonDependency("opt-einsum", "3.3.0", "PaddlePaddle tensor contraction"),
+        PythonDependency("packaging", "26.3", "version parsing"),
+        PythonDependency("pandas", "3.0.6", "PaddleX tabular results"),
+        PythonDependency("pillow", "12.3.0", "image decoding"),
+        PythonDependency("prettytable", "3.18.0", "PaddleX console tables"),
+        PythonDependency("propcache", "0.5.4", "aiohttp property cache"),
+        PythonDependency("protobuf", "7.36.2", "PaddlePaddle serialization"),
+        PythonDependency("psutil", "7.2.2", "PaddleX resource reporting"),
+        PythonDependency("py-cpuinfo", "9.0.0", "PaddleX CPU capability report"),
+        PythonDependency("pyclipper", "1.4.0", "PaddleX polygon clipping"),
+        PythonDependency("pycparser", "3.0", "cffi parser"),
+        PythonDependency("pycryptodome", "3.23.0", "bce-python-sdk signing"),
+        PythonDependency("pydantic", "2.13.5", "PaddleX configuration models"),
+        PythonDependency("pydantic-core", "2.46.5", "pydantic core"),
+        PythonDependency("pypdfium2", "5.13.0", "PaddleX PDF input"),
+        PythonDependency("python-bidi", "0.6.11", "PaddleX text ordering"),
+        PythonDependency("python-dateutil", "2.9.0.post0", "pandas timestamps"),
+        PythonDependency("pyyaml", "6.0.2", "PaddleX pipeline configuration"),
+        PythonDependency("requests", "2.34.2", "PaddleX HTTP"),
+        PythonDependency("ruamel.yaml", "0.19.1", "PaddleX round-trip YAML"),
+        PythonDependency("safetensors", "0.8.0", "PaddlePaddle weight loading"),
+        PythonDependency("setuptools", "84.0.0", "PaddlePaddle on Python 3.12"),
+        PythonDependency("shapely", "2.1.2", "PaddleX geometry"),
+        PythonDependency("six", "1.17.0", "python-dateutil compatibility"),
+        PythonDependency("sniffio", "1.3.1", "async backend detection"),
+        PythonDependency("tqdm", "4.70.1", "ModelScope progress"),
+        PythonDependency("typing-extensions", "4.16.0", "typed public API"),
+        PythonDependency("typing-inspection", "0.4.4", "pydantic introspection"),
+        PythonDependency("tzdata", "2026.4", "pandas timezone data"),
+        PythonDependency("ujson", "6.0.0", "PaddleX JSON"),
+        PythonDependency("urllib3", "2.8.0", "requests transport"),
+        PythonDependency("wcwidth", "0.9.0", "prettytable column widths"),
+        PythonDependency("yarl", "1.25.1", "aiohttp URL handling"),
     ),
     notes=(
-        "This pack's Python closure is not pinned yet: the declared "
-        "paddlex==2.4.4 does not exist on the index, so the closure cannot be "
-        "resolved and a bundle cannot install this pack offline. Correcting the "
-        "pin is a PaddleOCR generation decision, not a mechanical fix.",
+        "Targets the PaddleOCR 3.x line, because PP-StructureV3 only exists "
+        "there and paddlepaddle 3.3.1 is the runtime paddlex 3.7.2 was built "
+        "against. The handler's API call is generation-neutral: it prefers "
+        "``predict()`` and keeps the 2.x ``ocr()`` path.",
+        "paddlex hard-pins PyYAML==6.0.2 while core pins 6.0.3, and "
+        "paddlex[ocr-core] brings opencv-contrib-python where core brings "
+        "opencv-python. Two packs installed into one interpreter therefore end "
+        "with only the later pack's literal pins satisfied; the closure check "
+        "reads bundles, never an interpreter's installed set.",
+        "Declared sizes split the two halves: the bundle carries 211 MB of "
+        "wheels, and the engine's own model files are not in it. PaddleX "
+        "fetches those the first time a pipeline is built (192 MB, seven "
+        "models, measured on Windows x64), so an air-gapped machine has to "
+        "pre-place that cache; this pack does not pin those files yet.",
+        "The pinned paddlepaddle cannot lower these models through its oneDNN "
+        "path: every PP-OCR version fails with "
+        "``ConvertPirAttribute2RuntimeAttribute not support "
+        "[pir::ArrayAttribute<pir::DoubleAttribute>]``. The handler therefore "
+        "constructs PaddleOCR with ``enable_mkldnn=False``, which trades CPU "
+        "speed for an engine that runs.",
     ),
 )
 

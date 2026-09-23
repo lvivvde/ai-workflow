@@ -217,6 +217,41 @@ class AssetGeneratorTests(unittest.TestCase):
 
             self.assertIn("sha256", str(context.exception))
 
+    def test_a_pin_without_an_asset_is_refused(self) -> None:
+        """A pin with nothing to pin would silently leave the placeholder in place."""
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with self.assertRaises(SchemaError) as context:
+                self.materialize(
+                    {"kind": "png", "asset_sha256": _sha256(FAKE_PNG)},
+                    root=root,
+                    asset_root=root,
+                )
+
+            self.assertIn("asset_sha256 without asset", str(context.exception))
+
+    def test_a_docx_image_block_without_an_asset_stays_the_placeholder(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = self.materialize(
+                {
+                    "kind": "docx",
+                    "blocks": [
+                        {
+                            "type": "image",
+                            "relationship_id": "rIdImage1",
+                            "media_name": "word/media/flow.png",
+                        }
+                    ],
+                },
+                root=root,
+                asset_root=root,
+            )
+
+            with zipfile.ZipFile(target) as archive:
+                self.assertEqual(archive.read("word/media/flow.png"), TINY_PNG)
+
 
 class CommittedCorpusAssetTests(unittest.TestCase):
     """The committed corpora must agree with the pictures they ship."""

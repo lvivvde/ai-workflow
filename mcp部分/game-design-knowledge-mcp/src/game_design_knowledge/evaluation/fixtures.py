@@ -144,6 +144,11 @@ def _image_payload(block: Mapping[str, Any], where: Path, root: Path | None) -> 
     """The bytes for one image document or embedded-image block."""
 
     if block.get("asset") is None:
+        if block.get("asset_sha256") is not None:
+            raise SchemaError(
+                f"{where}: asset_sha256 without asset would be ignored, and the "
+                "document would quietly fall back to the placeholder picture"
+            )
         return TINY_PNG
     return _asset_payload(block.get("asset"), block.get("asset_sha256"), root, where)
 

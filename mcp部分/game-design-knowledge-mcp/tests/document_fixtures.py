@@ -157,6 +157,94 @@ def write_png(path: Path, **kwargs: object) -> None:
     path.write_bytes(png_bytes(**kwargs))  # type: ignore[arg-type]
 
 
+def arrow_png(
+    direction: str,
+    *,
+    box: tuple[int, int, int, int] = (60, 40, 40, 60),
+    size: tuple[int, int] = (200, 160),
+) -> bytes:
+    """A white PNG with a black arrow drawn inside ``box``.
+
+    The shape is the one the arrow rules and the ink measurement are meant to
+    read: a stem with a wider head at the end the arrow points to, so the widest
+    band of ink sits at the head -- near the far end for ``down``/``right`` and
+    near the near end for ``up``/``left``.
+
+    Spelled out row by row rather than drawn with an image library, so a test
+    can hand the pipeline real pixels for an arrow block without depending on
+    Pillow to make them (issue #28).
+    """
+
+    if direction not in ("up", "down", "left", "right"):
+        raise ValueError(f"not an arrow direction: {direction!r}")
+    width, height = size
+    left, top, box_width, box_height = box
+    white = (255, 255, 255)
+    rows = [bytearray(bytes(white) * width) for _ in range(height)]
+    head = 0.3
+
+    def ink(x: int, y: int) -> None:
+        if 0 <= x < width and 0 <= y < height:
+            rows[y][x * 3 : x * 3 + 3] = bytes((0, 0, 0))
+
+    if direction in ("up", "down"):
+        span = max(1, round(box_height * head))
+        stem_left = left + box_width // 3
+        stem_right = left + box_width - box_width // 3
+        for y in range(top, top + box_height):
+            if direction == "up":
+                depth = y - top
+                half = round((box_width / 2) * (depth / span)) if depth < span else None
+            else:
+                depth = top + box_height - 1 - y
+                half = round((box_width / 2) * (depth / span)) if depth < span else None
+            if half is None:
+                start, end = stem_left, stem_right
+            else:
+                centre = left + box_width // 2
+                start, end = centre - half, centre + half
+            for x in range(start, end + 1):
+                ink(x, y)
+    else:
+        span = max(1, round(box_width * head))
+        stem_top = top + box_height // 3
+        stem_bottom = top + box_height - box_height // 3
+        for x in range(left, left + box_width):
+            if direction == "right":
+                depth = left + box_width - 1 - x
+                half = round((box_height / 2) * (depth / span)) if depth < span else None
+            else:
+                depth = x - left
+                half = round((box_height / 2) * (depth / span)) if depth < span else None
+            if half is None:
+                start, end = stem_top, stem_bottom
+            else:
+                centre = top + box_height // 2
+                start, end = centre - half, centre + half
+            for y in range(start, end + 1):
+                ink(x, y)
+    return _png(width, height, [bytes(row) for row in rows])
+
+
+def _png(width: int, height: int, rows: list[bytes]) -> bytes:
+    def chunk(tag: bytes, payload: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(payload))
+            + tag
+            + payload
+            + struct.pack(">I", zlib.crc32(tag + payload) & 0xFFFFFFFF)
+        )
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    raw = b"".join(b"\x00" + row for row in rows)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(raw))
+        + chunk(b"IEND", b"")
+    )
+
+
 def jpeg_bytes() -> bytes:
     """A minimal JPEG: signature, one component, and an end marker.
 
@@ -180,6 +268,7 @@ def write_jpeg(path: Path) -> None:
 
 
 __all__ = [
+    "arrow_png",
     "jpeg_bytes",
     "png_bytes",
     "write_docx",

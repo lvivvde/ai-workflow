@@ -7,6 +7,7 @@
 ```text
 src/game_design_knowledge/layout.py         # Visual Elements、行/列、阅读顺序、depth_hint
 src/game_design_knowledge/flow_notation.py  # Structural Relations（next_step / points_to）
+src/game_design_knowledge/ink.py            # 箭头块自己的墨迹：方向需要像素佐证（arrow-ink-v1）
 ```
 
 ## 输入与输出
@@ -55,6 +56,7 @@ Relation       kind, status, source_region, target_region, via_regions,
 3. 上方恰好一个、下方恰好一个**与箭头同列对齐**的文字块。
 4. 两端之间没有其它箭头块被跨过（跨过就是连续箭头）。
 5. 两端同列、不互相重叠。
+6. **方向站得住**：箭头块自己的像素指向与转写读出的方向一致（issue #28）。
 
 任一条不成立就输出 `candidate` 并写明原因，而不是硬判：
 
@@ -66,14 +68,41 @@ Relation       kind, status, source_region, target_region, via_regions,
 | `consecutive_arrow` | 两端之间夹着箭头块，端点按整段箭头解算 |
 | `ambiguous_direction` | 整块都是箭头但方向互相矛盾 |
 | `overlapping_layout` | 端点框与箭头框重叠 |
+| `direction_conflict` | 结构干净，但块的墨迹指向与转写方向相反 |
+| `direction_unverified` | 结构干净，但这次构建没有（或读不出）块的墨迹佐证 |
 
 横向箭头（`→`/`←`）只在**同一行内左右两侧各有一个文字块**时确认 `points_to`，说明“谁指向谁”；否则同样是 candidate。
+
+## 方向为什么需要像素佐证
+
+方向决定了关系的**哪一端是源**，所以一次镜像读法不是噪声，而是把整条流程反过来。语料构造期间实测（Windows 11 / RapidOCR 1.3.24，4 种字体 × 5 个字号、30 多种渲染）：
+
+| 画的是 | 转写读成 | 转写置信度 |
+|---|---|---|
+| `↓↓` | `↑↑`（镜像） | 0.58 – 0.87 |
+| `↑↑` | `↑↑` | 0.77 – 0.89 |
+
+两个总体重叠，所以**任何**转写置信度阈值都分不开「读对了」和「读反了」。墨迹能分开：箭头块里最宽的一条墨迹带落在箭头上，于是“最宽墨迹带在框里的位置”是画面自身的事实（`arrow-ink-v1`，4 字体 × 5 字号实测）：
+
+| 画的是 | 纵向 profile 带位置（占框高） | 横向 profile 带位置（占框宽） |
+|---|---|---|
+| `↑` / `↑↑` | 0.16 – 0.33（头靠上） | 0.45 – 0.50 |
+| `↓` / `↓↓` | 0.65 – 0.82（头靠下） | 0.45 – 0.50 |
+| `→` / `→→` | 0.24 – 0.46（**不干净**） | 0.56 – 0.80（头靠右） |
+| `←` / `←←` | 0.24 – 0.46（不干净） | 0.34 – 0.43（头靠左） |
+
+两条边界必须一起看，否则会得到漂亮的错答案：
+
+- **轴由转写定，极性由像素定。** 实测到的误读都在同一族内（纵向读成另一个纵向），从不跨轴；而横向块的**纵向** profile 是「上重」的（头三角坐在杆上方），交叉轴读数不干净。所以轴取 `layout.arrow_axis()`，块的形状要和轴相符（纵向块至少不比它宽矮，横向块至少不比它窄高），极性才去量。
+- **分不清就不表态。** 最宽墨迹带必须离框的中线超过一个余量（`INK_MARGIN = 0.10`）才给方向，否则（装饰、色块、不巧的框）这次构建不给读数，关系按 `direction_unverified` 记，而不是半确认。
+
+结果是：转写与墨迹一致 → `confirmed`，并且 `geometry_basis` 里写出“最宽墨迹带在哪、与转写一致”；两者相反 → `candidate` + `direction_conflict`，关系的 `source_region`/`target_region` 仍按转写给出并**明确说明可能是反的**；没有读数（图片解不开、块没有边界框、块形状与轴不符、框里读不到形状）→ `candidate` + `direction_unverified`。结构性问题（分叉、跨列、缺端点、连续箭头、重叠）优先级更高：结构不干净时先报结构原因，方向的分歧仍会写进 `geometry_basis`。
 
 ## 置信度分列
 
 每条关系同时带两个数，含义不同、不合并、不取平均：
 
-- `geometry_confidence`：这次几何判断有多确定。确认=1.0，有明确竞争或跨列的 candidate=0.5，缺端点=0.2，方向矛盾=0.1。
+- `geometry_confidence`：这次几何判断有多确定。确认=1.0，有明确竞争、跨列或两端都在但方向没证的 candidate=0.5，缺端点=0.2，整块箭头自相矛盾（`ambiguous_direction`）=0.1。
 - `ocr_confidence`：这条关系依赖的区域里**最低**的文字置信度；引擎没给分数时是 `null`，不会被当成 1.0。
 
 布局清楚但文字读得差，会明确表现为 `geometry_confidence = 1.0` 且 `ocr_confidence` 偏低——这正是需要人来核对的那种情况。
@@ -98,7 +127,7 @@ Relation       kind, status, source_region, target_region, via_regions,
 
 ## 运行与降级
 
-`layout`（`layout-regions-v1`）与 `structure_relations`（`flow-arrow-v1`）是流水线第 3、4 个 stage，**实际计算发生在 `retrieval_projection` 内部**：只有那里同时持有本次解析的 OCR 区域，在 stage 里重算就只能读到上一版索引的区域。
+`layout`（`layout-regions-v1`）与 `structure_relations`（`flow-arrow-v2`）是流水线第 3、4 个 stage，**实际计算发生在 `retrieval_projection` 内部**：只有那里同时持有本次解析的 OCR 区域，在 stage 里重算就只能读到上一版索引的区域。
 
 因此这两个 stage 记录的是**决策**：跑的是哪套规则集、读的是哪个引擎产出的区域、需不需要视觉模型。没有选中任何 OCR 引擎时它们报 `unavailable` + `reason_code = no_ocr_engine`，并说明这一层不承诺任何结果；核心处理继续。
 

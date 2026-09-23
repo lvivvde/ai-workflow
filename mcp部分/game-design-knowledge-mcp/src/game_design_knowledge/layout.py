@@ -70,6 +70,25 @@ def arrow_direction(text: str) -> str:
     return directions.pop()
 
 
+def arrow_axis(text: str) -> str:
+    """``"vertical"``/``"horizontal"`` for an arrow-only block, else ``""``.
+
+    This is the one part of a block's reading the transcription is trusted to
+    carry. The deployed core engine's measured confusions are *within* a family
+    -- a block drawn as ``↓↓`` comes back as ``↑↑``, never as ``→`` -- while
+    which end of that axis the arrow points at is the thing it gets wrong
+    (issue #28). So the axis is read here and the polarity is measured from the
+    picture, in ``ink.py``.
+    """
+
+    direction = arrow_direction(text)
+    if direction in ("up", "down"):
+        return "vertical"
+    if direction in ("left", "right"):
+        return "horizontal"
+    return ""
+
+
 @dataclass(frozen=True)
 class VisualElement:
     """One region as a layout element, with its place in the reading order."""
@@ -478,6 +497,7 @@ __all__ = [
     "UNCERTAINTY_OVERLAPPING_BOXES",
     "VERTICAL_DIRECTIONS",
     "VisualElement",
+    "arrow_axis",
     "arrow_direction",
     "build_reading_order",
 ]

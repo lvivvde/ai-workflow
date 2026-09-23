@@ -469,7 +469,7 @@ class EvaluationRunTests(unittest.TestCase):
                 "layout_uncertain_relations": 2,
                 "layout_uncertainty": {"": 8, "overlapping_boxes": 2},
                 "layout_rulesets": {"layout-regions-v1": 10},
-                "relation_rulesets": {"flow-arrow-v1": 6},
+                "relation_rulesets": {"flow-arrow-v2": 6},
             },
             ("dev-001",),
         )
@@ -491,7 +491,7 @@ class EvaluationRunTests(unittest.TestCase):
         self.assertEqual(relations.metrics["layout_relations"], 6)
         self.assertEqual(relations.metrics["layout_confirmed_relations"], 4)
         self.assertEqual(
-            relations.metrics["relation_rulesets"], {"flow-arrow-v1": 6}
+            relations.metrics["relation_rulesets"], {"flow-arrow-v2": 6}
         )
 
         empty = _layout_layers(

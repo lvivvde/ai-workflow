@@ -21,9 +21,9 @@ from game_design_knowledge.recording import record_build_revisions
 from game_design_knowledge.review import apply_review_action, plan_review_action
 
 try:
-    from tests.document_fixtures import png_bytes, write_docx_with_image
+    from tests.document_fixtures import arrow_png, write_docx_with_image
 except ModuleNotFoundError:  # pragma: no cover - discover imports tests as modules
-    from document_fixtures import png_bytes, write_docx_with_image
+    from document_fixtures import arrow_png, write_docx_with_image
 
 
 DOCUMENT = "docs/docx/loop.docx"
@@ -77,7 +77,16 @@ def build_project(root: Path, *, text: str = PARAGRAPH) -> Path:
     """Write the document, index it, and register its revisions."""
 
     index_directory = root / ".index" / "knowledge"
-    write_docx_with_image(root / DOCUMENT, text, png_bytes())
+    write_docx_with_image(
+        root / DOCUMENT,
+        text,
+        # The agreed step's block is drawn pointing down, under the box the
+        # transcription puts ``↓`` in, so the pixels corroborate it (issue #28).
+        # The disputed block's box is left blank on purpose: it is disputed by
+        # what the transcription reads (``↓↑``), and a block that contradicts
+        # itself is a candidate whatever its pixels say.
+        arrow_png("down", box=(135, 30, 10, 20), size=(240, 160)),
+    )
     index_documents(
         root,
         index_directory,

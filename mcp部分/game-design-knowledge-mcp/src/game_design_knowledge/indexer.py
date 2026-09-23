@@ -16,6 +16,7 @@ import zipfile
 
 from . import revisions
 from .flow_notation import build_relations, summarize_relations
+from .ink import arrow_ink_readings
 from .layout import build_reading_order
 from .migration import (
     TARGET_SCHEMA_VERSION,
@@ -259,7 +260,8 @@ def index_documents(
                     (image_id, context_text, ocr_text, heading or ""),
                 )
                 layout_recorded = _add_counts(
-                    layout_recorded, _record_ocr_result(connection, image_id, ocr)
+                    layout_recorded,
+                    _record_ocr_result(connection, image_id, ocr, asset_path),
                 )
                 outcomes.append(ocr.outcome)
                 ocr_regions_recorded += len(ocr.observation.regions)
@@ -421,7 +423,8 @@ def index_documents(
                     (image_id, context_text, ocr_text, ""),
                 )
                 layout_recorded = _add_counts(
-                    layout_recorded, _record_ocr_result(connection, image_id, ocr)
+                    layout_recorded,
+                    _record_ocr_result(connection, image_id, ocr, asset_path),
                 )
                 outcomes.append(ocr.outcome)
                 ocr_regions_recorded += len(ocr.observation.regions)
@@ -1377,7 +1380,10 @@ def _transcribe_image(
 
 
 def _record_ocr_result(
-    connection: sqlite3.Connection, image_id: int, result: OcrResult
+    connection: sqlite3.Connection,
+    image_id: int,
+    result: OcrResult,
+    asset_path: Path,
 ) -> dict[str, int]:
     """Persist the run, its regions, the suggestion per region, and its layout."""
 
@@ -1457,11 +1463,14 @@ def _record_ocr_result(
                     now,
                 ),
             )
-    return _record_layout_result(connection, image_id, result)
+    return _record_layout_result(connection, image_id, result, asset_path)
 
 
 def _record_layout_result(
-    connection: sqlite3.Connection, image_id: int, result: OcrResult
+    connection: sqlite3.Connection,
+    image_id: int,
+    result: OcrResult,
+    asset_path: Path,
 ) -> dict[str, int]:
     """Persist the reading order and relations derived from this run's regions.
 
@@ -1470,10 +1479,15 @@ def _record_layout_result(
     beside it. An image with no regions still gets a run row: "this image had
     nothing to order" is a fact worth storing next to "this image was never
     looked at".
+
+    Which way an arrow block points is measured from that block's own pixels
+    (``ink.arrow_ink_readings``) rather than believed from the transcription
+    alone, so a mirrored glyph reading cannot reverse a flow (issue #28).
     """
 
-    order = build_reading_order(result.observation.ordered())
-    relations = build_relations(order)
+    regions = result.observation.ordered()
+    order = build_reading_order(regions)
+    relations = build_relations(order, ink=arrow_ink_readings(asset_path, regions))
     counted = summarize_relations(relations)
     counted["layout_elements"] = len(order.elements)
     now = _now_iso()
@@ -1641,7 +1655,7 @@ def _index_standalone_image(
         "INSERT INTO image_fts(image_id, context_text, ocr_text, heading) VALUES (?, ?, ?, ?)",
         (image_id, _source_part(path, logical_root), ocr.text, ""),
     )
-    counted = _record_ocr_result(connection, image_id, ocr)
+    counted = _record_ocr_result(connection, image_id, ocr, asset_path)
     return action, ocr, counted
 
 

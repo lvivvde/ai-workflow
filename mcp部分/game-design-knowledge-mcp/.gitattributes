@@ -1,0 +1,5 @@
+# The committed capability manifests are the pinned artifacts this build ships,
+# and the test suite compares them byte for byte against a freshly generated
+# manifest. With core.autocrlf=true a Windows checkout would rewrite them to
+# CRLF and break that comparison, so the repository pins LF for these files.
+capabilities/manifests/*.json text eol=lf

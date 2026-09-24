@@ -16,5 +16,12 @@ dependencies = [
 game-design-knowledge = "game_design_knowledge.cli:main"
 game-design-knowledge-mcp = "game_design_knowledge.server:main"
 
+[dependency-groups]
+# The image-dependent tests build and read back PNG fixtures, so Pillow is part
+# of the development environment `uv sync` materialises by default.
+dev = [
+    "pillow>=11",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/game_design_knowledge"]

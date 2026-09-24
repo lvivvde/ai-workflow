@@ -135,6 +135,22 @@ def _targets() -> Iterable[tuple[Path, bytes]]:
         yield EVALUATION_ROOT / split / "assets" / name, render(rows)
 
 
+def _report(line: str) -> None:
+    """Print one status line, surviving a stdout that cannot encode it.
+
+    The corpus paths carry Chinese directory names, so a redirected non-UTF-8
+    console (Windows CI, ``> file``) would raise ``UnicodeEncodeError`` instead
+    of reporting. Fall back to unambiguous ASCII escapes there.
+    """
+
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    try:
+        line.encode(encoding)
+    except (LookupError, UnicodeEncodeError):
+        line = line.encode("ascii", "backslashreplace").decode("ascii")
+    print(line)
+
+
 def main(argv: Sequence[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -149,18 +165,18 @@ def main(argv: Sequence[str]) -> int:
         digest = hashlib.sha256(payload).hexdigest()
         if arguments.check:
             if not path.is_file():
-                print(f"MISSING {path.relative_to(REPOSITORY_ROOT)}")
+                _report(f"MISSING {path.relative_to(REPOSITORY_ROOT)}")
                 exit_code = 1
                 continue
             committed = hashlib.sha256(path.read_bytes()).hexdigest()
             status = "ok" if committed == digest else "DIFFERENT"
             if committed != digest:
                 exit_code = 1
-            print(f"{status:9} {path.relative_to(REPOSITORY_ROOT)} {committed}")
+            _report(f"{status:9} {path.relative_to(REPOSITORY_ROOT)} {committed}")
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(payload)
-        print(f"wrote     {path.relative_to(REPOSITORY_ROOT)} {digest}")
+        _report(f"wrote     {path.relative_to(REPOSITORY_ROOT)} {digest}")
     return exit_code
 
 

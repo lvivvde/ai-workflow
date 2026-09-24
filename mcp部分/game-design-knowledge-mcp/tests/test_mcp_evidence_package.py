@@ -367,7 +367,14 @@ class EvidencePackageMcpTests(unittest.TestCase):
         self.assertEqual(found["asset"]["sha256"], stored[1])
         self.assertEqual(found["asset"]["image_id"], 1)
         self.assertTrue(Path(found["asset"]["path"]).is_file())
-        self.assertTrue(Path(found["asset"]["path"]).is_relative_to(self.index_directory))
+        # The index hands out a resolved path, so the base has to be resolved
+        # too: a Windows short (8.3) or junction temp directory is the same place
+        # under a different spelling, and a lexical check would call it outside.
+        self.assertTrue(
+            Path(found["asset"]["path"])
+            .resolve()
+            .is_relative_to(Path(self.index_directory).resolve())
+        )
 
         content = found["content"]
         self.assertTrue(content["included"])

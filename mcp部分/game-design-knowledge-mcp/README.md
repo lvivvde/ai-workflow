@@ -52,8 +52,10 @@ game-design-knowledge-mcp/
 
 ```powershell
 uv sync --locked
-uv run python -m unittest discover -s tests -v
+uv run pytest
 ```
+
+`pytest` 已声明在默认开发依赖组中，`uv sync --locked` 会按 `uv.lock` 安装固定版本。仅安装运行时依赖时可使用 `uv sync --locked --no-dev`。当前版本的完整测试基线为 448 项；2026-09-26 在 Windows、Python 3.12.13 与 pytest 9.1.1 环境中验证全部通过。
 
 Windows 上也可以一条命令完成锁定安装、测试、复用并验证共享索引，以及生成本机 MCP 配置：
 

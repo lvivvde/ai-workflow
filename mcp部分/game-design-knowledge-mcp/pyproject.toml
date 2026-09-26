@@ -21,6 +21,7 @@ game-design-knowledge-mcp = "game_design_knowledge.server:main"
 # of the development environment `uv sync` materialises by default.
 dev = [
     "pillow>=11",
+    "pytest>=9.1.1",
 ]
 
 [tool.hatch.build.targets.wheel]
